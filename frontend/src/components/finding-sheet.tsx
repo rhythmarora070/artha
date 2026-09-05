@@ -37,6 +37,7 @@ export function FindingSheet({ findingId, onClose }: { findingId: string | null;
     await qc.invalidateQueries({ queryKey: ["control"] });
     await qc.invalidateQueries({ queryKey: ["dashboard"] });
     await qc.invalidateQueries({ queryKey: ["transactions"] });
+    await qc.invalidateQueries({ queryKey: ["control-history"] });
     await refetch();
   }
 

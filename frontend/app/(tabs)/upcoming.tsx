@@ -7,6 +7,7 @@ import { useState, useMemo } from "react";
 import { api, fmtINR, Commitment } from "@/src/api";
 import { useTheme, spacing, radius, font } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
+import { RemindersCard } from "@/src/components/reminders";
 
 const SEGMENTS = [
   { key: "upcoming", labelKey: "upcoming" },
@@ -25,8 +26,9 @@ export default function Upcoming() {
     queryKey: ["commitments"],
     queryFn: () => api.commitments(),
   });
+  const { data: dash } = useQuery({ queryKey: ["dashboard", lang], queryFn: () => api.dashboard(lang) });
 
-  const filtered = useMemo(() => data.filter((c) => c.kind === seg), [data, seg]);
+  const filtered = useMemo(() => data.filter((c) => c.kind === seg && c.status !== "paid"), [data, seg]);
   const total = useMemo(() => filtered.reduce((s, c) => s + c.amount, 0), [filtered]);
 
   return (
@@ -59,6 +61,8 @@ export default function Upcoming() {
         })}
       </ScrollView>
 
+      <RemindersCard reminders={dash?.reminders ?? []} />
+
       <View style={[styles.totalCard, { backgroundColor: colors.brandTertiary }]}>
         <Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "600" }}>
           {lang === "hi" ? "कुल" : "Total"}
@@ -90,7 +94,8 @@ export default function Upcoming() {
 function ComRow({ c }: { c: Commitment }) {
   const { colors } = useTheme();
   const { lang } = useLang();
-  const days = Math.ceil((new Date(c.due_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  const [now] = useState(() => Date.now());
+  const days = Math.ceil((new Date(c.due_date).getTime() - now) / (1000 * 60 * 60 * 24));
   const imminent = days <= 3;
   return (
     <View style={[styles.row, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
@@ -127,7 +132,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     padding: spacing.lg,
     borderRadius: radius.md,
-    marginTop: spacing.sm,
+    marginTop: spacing.lg,
     marginBottom: spacing.sm,
   },
   row: {

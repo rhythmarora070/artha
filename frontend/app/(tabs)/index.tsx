@@ -9,6 +9,7 @@ import Icon from "@react-native-vector-icons/material-design-icons";
 import { api, fmtINR, StoryWeek } from "@/src/api";
 import { useTheme, spacing, radius, font } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
+import { RemindersCard } from "@/src/components/reminders";
 import { useState } from "react";
 
 const HERO_BG =
@@ -43,7 +44,7 @@ export default function Home() {
   };
 
   const openTopFinding = () => {
-    if (data?.top_finding) router.push({ pathname: "/control", params: { open: data.top_finding.id } } as any);
+    if (data?.top_finding) router.push({ pathname: "/control", params: { open: data.top_finding.id, ts: String(Date.now()) } } as any);
     else router.push("/control" as any);
   };
 
@@ -126,6 +127,9 @@ export default function Home() {
         </View>
 
         <Text testID="data-context" style={[styles.context, { color: colors.muted }]}>{t("data_context", lang)}</Text>
+
+        {/* Commitment reminders (due within 24h / overdue) */}
+        {data?.reminders?.length ? <RemindersCard reminders={data.reminders} compact /> : null}
 
         {/* Metric grid */}
         <View style={styles.grid}>

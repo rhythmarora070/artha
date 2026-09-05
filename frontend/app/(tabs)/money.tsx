@@ -7,6 +7,8 @@ import { useState } from "react";
 import { api, fmtINR, Transaction } from "@/src/api";
 import { useTheme, spacing, radius, font } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
+import { CategoryInsights } from "@/src/components/category-insights";
+import { router } from "expo-router";
 
 const FILTERS = ["All", "Bank", "UPI", "Card", "Cash", "Razorpay"] as const;
 type Filter = (typeof FILTERS)[number];
@@ -44,6 +46,7 @@ export default function Money() {
   const { colors } = useTheme();
   const { lang } = useLang();
   const [filter, setFilter] = useState<Filter>("All");
+  const [showInsights, setShowInsights] = useState(false);
   const { data = [], error, refetch, isRefetching } = useQuery({
     queryKey: ["transactions", filter],
     queryFn: () => api.transactions(filter),
@@ -55,7 +58,21 @@ export default function Money() {
       <View style={{ backgroundColor: colors.surface, paddingTop: insets.top + spacing.sm }}>
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.onSurface }]}>{t("transactions", lang)}</Text>
-          <Text style={{ color: colors.muted, fontSize: font.sm }}>{data.length} {t("records", lang)}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <Text style={{ color: colors.muted, fontSize: font.sm }}>{data.length} {t("records", lang)}</Text>
+            <Pressable
+              testID="insights-toggle"
+              onPress={() => setShowInsights((v) => !v)}
+              style={[styles.headerBtn, { backgroundColor: showInsights ? colors.brandPrimary : colors.brandTertiary }]}
+            >
+              <Icon name="chart-bar" size={16} color={showInsights ? colors.onBrandPrimary : colors.brandPrimary} />
+              <Text style={{ color: showInsights ? colors.onBrandPrimary : colors.brandPrimary, fontWeight: "700", fontSize: font.sm, marginLeft: 4 }}>{t("insights", lang)}</Text>
+            </Pressable>
+            <Pressable testID="import-open" onPress={() => router.push("/import" as any)} style={[styles.headerBtn, { backgroundColor: colors.brandTertiary }]}>
+              <Icon name="file-upload-outline" size={16} color={colors.brandPrimary} />
+              <Text style={{ color: colors.brandPrimary, fontWeight: "700", fontSize: font.sm, marginLeft: 4 }}>{t("import_csv", lang)}</Text>
+            </Pressable>
+          </View>
         </View>
         <ScrollView
           horizontal
@@ -96,6 +113,7 @@ export default function Money() {
         data={data}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xl }}
+        ListHeaderComponent={showInsights ? <View style={{ marginHorizontal: -spacing.lg }}><CategoryInsights /></View> : null}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.brandPrimary} />}
         ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
         ListEmptyComponent={() => (
@@ -227,6 +245,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     minHeight: 64,
   },
+  headerBtn: { flexDirection: "row", alignItems: "center", height: 32, paddingHorizontal: 10, borderRadius: radius.pill },
   miniBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", height: 32, paddingHorizontal: 12, borderRadius: radius.pill },
   rowIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
 });

@@ -437,6 +437,73 @@ def compute_coverage(txs: list, findings: list, record_status: dict) -> dict:
 # ---------------------------------------------------------------------------
 # commitments / affordability
 # ---------------------------------------------------------------------------
+REMINDER_WINDOW_H = 24
+
+
+def compute_reminders(coms: list) -> list:
+    """Commitments due within 24h or overdue (not paid, not snoozed, not owed_to_me)."""
+    now = datetime.now(timezone.utc)
+    out = []
+    for c in coms:
+        if c["status"] == "paid" or c["kind"] == "owed_to_me":
+            continue
+        snooze = c.get("snooze_until")
+        if snooze and as_dt(snooze) > now:
+            continue
+        due = as_dt(c["due_date"])
+        hours = (due - now).total_seconds() / 3600
+        if hours <= REMINDER_WINDOW_H:
+            out.append({**c, "hours_until_due": round(hours, 1), "overdue": hours < 0})
+    out.sort(key=lambda r: r["hours_until_due"])
+    return out
+
+
+def next_due_date(due: datetime, frequency: str) -> datetime:
+    if frequency == "weekly":
+        return due + timedelta(days=7)
+    if frequency == "yearly":
+        return due.replace(year=due.year + 1)
+    # monthly: same day next month (clamped)
+    month = due.month % 12 + 1
+    year = due.year + (1 if due.month == 12 else 0)
+    day = min(due.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+    return due.replace(year=year, month=month, day=day)
+
+
+def category_comparison(txs: list) -> dict:
+    """Spending per category: last 30 days vs the 30 days before (external outflows only)."""
+    now = datetime.now(timezone.utc)
+    cur_start = now - timedelta(days=30)
+    prev_start = now - timedelta(days=60)
+    cur, prev = defaultdict(float), defaultdict(float)
+    for t in txs:
+        if t["type"] not in ("paid", "fee", "transfer") or (t.get("category") or "") == "Transfer":
+            continue
+        d = as_dt(t["date"])
+        cat = t.get("category") or "Uncategorized"
+        if d > cur_start:
+            cur[cat] += float(t["amount"])
+        elif d > prev_start:
+            prev[cat] += float(t["amount"])
+    rows = []
+    for cat in set(cur) | set(prev):
+        c, p = round(cur[cat], 2), round(prev[cat], 2)
+        rows.append({
+            "category": cat,
+            "current": c,
+            "previous": p,
+            "change": round(c - p, 2),
+            "change_pct": round((c - p) / p * 100, 1) if p else None,
+        })
+    rows.sort(key=lambda r: -max(r["current"], r["previous"]))
+    return {
+        "window_days": 30,
+        "current_total": round(sum(cur.values()), 2),
+        "previous_total": round(sum(prev.values()), 2),
+        "rows": rows,
+    }
+
+
 def compute_upcoming(coms: list, recorded_balance: float) -> dict:
     now = datetime.now(timezone.utc)
     week = now + timedelta(days=7)
@@ -567,8 +634,10 @@ def build_facts(accounts: list, txs: list, coms: list, lang: str = "en") -> dict
     txs_by_id = {t["id"]: t for t in txs}
     findings = [render_finding(f, txs_by_id, lang) for f in raw_findings]
     upcoming = compute_upcoming(coms, balances["recorded_balance"])
+    reminders = compute_reminders(coms)
     return {
         "accounts": accounts,
+        "reminders": reminders,
         "transactions": txs,
         "commitments": coms,
         "balances": balances,

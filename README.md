@@ -32,6 +32,10 @@ Core principle: **financial truth = deterministic code; AI = explanation.**
 | Exception detail | What happened · Why flagged · Related transactions · Financial impact · Recommended action · AI explanation · one-tap fixes |
 | Upcoming | Upcoming payments, recurring, loans, money I owe, money owed to me |
 | Ask ARTHA | Suggested questions, chat, English/Hindi, voice input (en-IN / hi-IN) where supported |
+| Reminders | In-app reminders for commitments due within 24h or overdue — Mark paid (recurring items roll forward) / Snooze 1 day |
+| Exception history | Every resolved finding is logged with the fix applied ("Resolved" section on Control) |
+| Category insights | Last 30 days vs previous 30 days per category, deterministic bars (Money → Insights) |
+| Statement import | Paste CSV or pick a .csv; columns auto-detected (date, narration, debit/credit or amount, reference); duplicates skipped; preview then import |
 
 ## 4. Architecture
 
@@ -71,13 +75,14 @@ All numbers come from code, never from the model:
 
 ## 7. Synthetic Demo Data (`backend/seed.py`)
 
-105 synthetic records across 6 accounts (HDFC Savings, SBI Savings, PhonePe UPI, HDFC Credit Card, Cash Wallet, Razorpay Test) and categories including food, groceries, travel, rent, shopping, subscriptions, utilities, education, entertainment, transfers, salary, fees, investments, health. Planted, documented anomalies:
+140 synthetic records (≈105 in the last 30 days plus a previous-month slice for comparisons) across 6 accounts (HDFC Savings, SBI Savings, PhonePe UPI, HDFC Credit Card, Cash Wallet, Razorpay Test) and categories including food, groceries, travel, rent, shopping, subscriptions, utilities, education, entertainment, transfers, salary, fees, investments, health. Planted, documented anomalies:
 
 - **A.** ₹5,000 unclassified payment on HDFC → sole cause of the ₹5,000 unexplained difference (₹49,344 recorded / ₹54,344 expected).
 - **B/C.** Two possible-duplicate groups (Amazon Pay ₹899 ×2, Uber ₹185 ×2).
 - **D.** ₹350 card fee with no description.
 - **E.** "Payment to XYZ" ₹1,240 uncategorized (smart-categorisation target).
 - **F.** ₹1,500 transfer without description.
+- Commitments include one overdue (Wi-Fi bill) and one due tomorrow (Electricity bill) to demo reminders.
 
 The dataset seeds automatically on first start when the database is empty; the ↻ button on Home re-seeds it.
 

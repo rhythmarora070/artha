@@ -85,7 +85,9 @@ class Commitment(BaseModel):
     frequency: Literal["one-time", "monthly", "weekly", "yearly"] = "monthly"
     category: str = "General"
     kind: Literal["upcoming", "recurring", "loan", "owed_by_me", "owed_to_me"] = "upcoming"
-    status: Literal["pending", "paid", "overdue"] = "pending"
+    status: Literal["pending", "paid"] = "pending"
+    snooze_until: Optional[datetime] = None
+    last_paid_at: Optional[datetime] = None
 
 
 class CommitmentCreate(BaseModel):
@@ -113,3 +115,37 @@ class OrderReq(BaseModel):
     amount: int = Field(gt=0)  # paise
     currency: str = "INR"
     receipt: Optional[str] = None
+
+
+class ImportPreviewRequest(BaseModel):
+    account_id: str
+    csv_text: str = Field(min_length=1, max_length=2_000_000)
+
+
+class ImportRow(BaseModel):
+    date: datetime
+    description: str = ""
+    amount: float = Field(gt=0)
+    type: TxType
+    reference: Optional[str] = None
+    category: str = "Uncategorized"
+
+
+class ImportCommitRequest(BaseModel):
+    account_id: str
+    rows: list[ImportRow] = Field(max_length=5000)
+
+
+class Resolution(BaseModel):
+    """History entry: a finding ARTHA caught that the user resolved."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = DEMO_USER_ID
+    finding_id: str
+    kind: str
+    severity: str
+    amount: float
+    account_name: str = ""
+    related: list[dict] = []
+    fix: Literal["categorised", "described", "kept_both", "removed_copy", "marked_reviewed", "record_deleted"]
+    fix_detail: str = ""
+    resolved_at: datetime = Field(default_factory=_now)

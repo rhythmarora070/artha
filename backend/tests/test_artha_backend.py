@@ -12,6 +12,8 @@ API = f"{BASE_URL}/api"
 def session():
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    tok = s.post(f"{API}/auth/demo", timeout=60).json()["session_token"]
+    s.headers.update({"Authorization": f"Bearer {tok}"})
     return s
 
 
@@ -23,7 +25,7 @@ def _seed(session):
     assert body["ok"] is True
     assert body["accounts"] == 6
     assert body["transactions"] >= 100
-    assert body["commitments"] == 7
+    assert body["commitments"] == 9
     return body
 
 
@@ -33,6 +35,26 @@ class TestArtha:
     def test_root(self, session):
         r = session.get(f"{API}/", timeout=15)
         assert r.status_code == 200 and r.json()["ok"] is True
+
+    def test_auth_required(self):
+        assert requests.get(f"{API}/dashboard", timeout=15).status_code == 401
+
+    def test_register_login_isolated_data(self):
+        import uuid
+        email = f"t{uuid.uuid4().hex[:8]}@example.com"
+        r = requests.post(f"{API}/auth/register", json={"email": email, "password": "artha-test-123", "name": "T"}, timeout=15)
+        assert r.status_code == 201 and r.json()["user"]["onboarded"] is False
+        assert requests.post(f"{API}/auth/register", json={"email": email, "password": "artha-test-123"}, timeout=15).status_code == 409
+        assert requests.post(f"{API}/auth/login", json={"email": email, "password": "wrong-password"}, timeout=15).status_code == 401
+        tok = requests.post(f"{API}/auth/login", json={"email": email, "password": "artha-test-123"}, timeout=15).json()["session_token"]
+        h = {"Authorization": f"Bearer {tok}"}
+        assert requests.get(f"{API}/auth/me", headers=h, timeout=15).json()["email"] == email
+        d = requests.get(f"{API}/dashboard", headers=h, timeout=30).json()
+        assert d["coverage"]["records_analyzed"] == 0 and d["balances"]["recorded_balance"] == 0
+        assert requests.post(f"{API}/seed", headers=h, timeout=15).status_code == 403
+        assert requests.patch(f"{API}/auth/me", headers=h, json={"onboarded": True, "app_lock": True}, timeout=15).json()["onboarded"] is True
+        requests.post(f"{API}/auth/logout", headers=h, timeout=15)
+        assert requests.get(f"{API}/auth/me", headers=h, timeout=15).status_code == 401
 
     def test_health(self, session):
         r = session.get(f"{API}/health", timeout=15)
@@ -140,7 +162,7 @@ class TestArtha:
     def test_affordability(self, session):
         r = session.post(f"{API}/ask", json={"question": "Can I afford ₹2,000 today?", "language": "en"}, timeout=90)
         assert r.json()["intent"] == "affordability"
-        assert "37,344" in r.json()["answer"]
+        assert "35,046" in r.json()["answer"]
 
     def test_hindi_next_week(self, session):
         r = session.post(f"{API}/ask", json={"question": "अगले हफ़्ते मुझे कितने पैसे चाहिए होंगे?", "language": "hi"}, timeout=90)
@@ -150,7 +172,59 @@ class TestArtha:
 
     def test_list_and_week_total(self, session):
         coms = session.get(f"{API}/commitments", timeout=15).json()
-        assert len(coms) == 7
+        assert len(coms) == 9
         d = session.get(f"{API}/dashboard", timeout=30).json()
-        assert d["upcoming_week_total"] == 12000.0
-        assert d["discretionary"] == 49344.0 - 12000.0
+        assert d["upcoming_week_total"] == 14298.0
+        assert d["discretionary"] == 49344.0 - 14298.0
+
+    def test_reminders_pay_and_snooze(self, session):
+        d = session.get(f"{API}/dashboard", timeout=30).json()
+        names = {r["name"]: r for r in d["reminders"]}
+        assert "Wi-Fi bill" in names and names["Wi-Fi bill"]["overdue"] is True
+        assert "Electricity bill" in names and names["Electricity bill"]["overdue"] is False
+        r = session.post(f"{API}/commitments/{names['Wi-Fi bill']['id']}/snooze", timeout=15)
+        assert r.status_code == 200 and r.json()["snooze_until"]
+        r = session.post(f"{API}/commitments/{names['Electricity bill']['id']}/pay", timeout=15)
+        assert r.status_code == 200 and r.json()["status"] == "pending"  # monthly → rolled forward
+        assert session.get(f"{API}/dashboard", timeout=30).json()["reminders"] == []
+        session.post(f"{API}/seed", timeout=60)
+
+    def test_history_logs_resolved_finding(self, session):
+        fee = next(f for f in session.get(f"{API}/control", timeout=30).json()["findings"] if f["kind"] == "unexpected_fee")
+        session.patch(f"{API}/transactions/{fee['related'][0]['id']}", json={"review": "accepted"}, timeout=15)
+        h = session.get(f"{API}/control/history", timeout=15).json()
+        assert h and h[0]["kind"] == "unexpected_fee" and h[0]["fix"] == "marked_reviewed" and h[0]["amount"] == 350.0
+        assert not any(f["kind"] == "unexpected_fee" for f in session.get(f"{API}/control", timeout=30).json()["findings"])
+        session.post(f"{API}/seed", timeout=60)
+        assert session.get(f"{API}/control/history", timeout=15).json() == []
+
+    def test_category_insights(self, session):
+        d = session.get(f"{API}/insights/categories", timeout=30).json()
+        assert d["window_days"] == 30 and d["current_total"] > 0 and d["previous_total"] > 0
+        rent = next(r for r in d["rows"] if r["category"] == "Rent")
+        assert rent["current"] == 12000.0 and rent["previous"] == 12000.0 and rent["change_pct"] == 0.0
+        assert not any(r["category"] == "Transfer" for r in d["rows"])
+
+    def test_import_preview_and_commit(self, session):
+        acc = session.get(f"{API}/accounts", timeout=15).json()[0]
+        csv = ("Date,Narration,Withdrawal Amt,Deposit Amt,Ref No\n"
+               "03/09/2026,UPI-ZOMATO ORDER,320.00,,IMP-T1\n"
+               "02/09/2026,SALARY CREDIT,,45000.00,SAL-0825\n"
+               "01/09/2026,ATM CHARGE,118,,IMP-T2\n"
+               "bad-date,xx,10,,\n")
+        r = session.post(f"{API}/import/preview", json={"account_id": acc["id"], "csv_text": csv}, timeout=30)
+        assert r.status_code == 200
+        p = r.json()
+        assert p["summary"] == {"total": 4, "importable": 2, "duplicates": 1, "errors": 1}
+        rows = p["rows"]
+        assert rows[0]["category"] == "Food" and rows[0]["type"] == "paid"
+        assert rows[1]["duplicate"] is True  # reference already in the ledger
+        assert rows[2]["type"] == "fee"
+        before = session.get(f"{API}/control", timeout=30).json()["coverage"]["records_analyzed"]
+        good = [{k: x[k] for k in ("date", "description", "amount", "type", "reference", "category")} for x in rows if not x["error"] and not x["duplicate"]]
+        r = session.post(f"{API}/import/commit", json={"account_id": acc["id"], "rows": good}, timeout=30)
+        assert r.status_code == 200 and r.json()["imported"] == 2
+        assert session.get(f"{API}/control", timeout=30).json()["coverage"]["records_analyzed"] == before + 2
+        r = session.post(f"{API}/import/preview", json={"account_id": acc["id"], "csv_text": "foo,bar\n1,2\n"}, timeout=30)
+        assert r.status_code == 422
+        session.post(f"{API}/seed", timeout=60)

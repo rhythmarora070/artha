@@ -3,7 +3,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import Icon from "@react-native-vector-icons/material-design-icons";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import * as Haptics from "expo-haptics";
 
 import { api } from "@/src/api";
@@ -21,7 +21,7 @@ export default function QuickRecord() {
   const [type, setType] = useState<"paid" | "received">("paid");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("Personal");
-  const [accountId, setAccountId] = useState<string | null>(null);
+  const [pickedAccount, setPickedAccount] = useState<string | null>(null);
   const [reference, setReference] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -30,9 +30,7 @@ export default function QuickRecord() {
   const { data: accounts = [] } = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
   const { data: categories = DEFAULT_CATEGORIES } = useQuery({ queryKey: ["categories"], queryFn: api.categories });
 
-  useEffect(() => {
-    if (!accountId && accounts[0]) setAccountId(accounts[0].id);
-  }, [accounts, accountId]);
+  const accountId = pickedAccount ?? accounts[0]?.id ?? null;
 
   async function save() {
     const amt = Number(amount.replace(/,/g, ""));
@@ -173,7 +171,7 @@ export default function QuickRecord() {
               <Pressable
                 key={a.id}
                 testID={`qr-acc-${a.name}`}
-                onPress={() => setAccountId(a.id)}
+                onPress={() => setPickedAccount(a.id)}
                 style={[
                   styles.chip,
                   {

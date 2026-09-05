@@ -28,7 +28,7 @@ from engine import signed_delta
 from models import Account, Commitment, Transaction
 
 TARGET_RECORDED_BALANCE = 49_344.0
-TARGET_RECORD_COUNT = 105
+TARGET_RECORD_COUNT = 140  # ~105 in the last 30 days + a previous-month slice for comparisons
 
 
 def build_demo_dataset(now: datetime | None = None):
@@ -104,6 +104,22 @@ def build_demo_dataset(now: datetime | None = None):
     for i, (desc, amt) in enumerate([("Tea stall", 20), ("Vada pav", 40), ("Auto tip", 30), ("Snacks", 90), ("Newspaper", 25), ("Coconut water", 50)]):
         add(account_id=cash, amount=amt, type="paid", category="Food" if desc != "Auto tip" else "Transport", description=desc, date=d(1 + i * 4, 17), source="Cash")
 
+    # --- previous 30-day slice (for "last 30 days vs previous 30 days" insights) -----
+    add(account_id=hdfc, amount=45000, type="received", category="Salary", description="Monthly salary", date=d(58, 9), source="Bank", reference="SAL-0725")
+    add(account_id=hdfc, amount=12000, type="paid", category="Rent", description="House rent", date=d(57, 10), source="Bank", reference="RENT-JUL")
+    add(account_id=hdfc, amount=1380, type="paid", category="Utilities", description="Electricity bill", date=d(45, 19), source="Bank")
+    add(account_id=hdfc, amount=999, type="paid", category="Subscription", description="Netflix", date=d(40, 7), source="Bank", reference="NETFLIX")
+    add(account_id=hdfc, amount=5000, type="transfer", category="Investment", description="SIP - HDFC Mutual Fund", date=d(50, 9), source="Bank", reference="SIP-00")
+    add(account_id=phonepe, amount=1500, type="paid", category="Health", description="Gym membership", date=d(56, 7), source="UPI")
+    add(account_id=card, amount=2199, type="paid", category="Shopping", description="Amazon order", date=d(48, 19), source="Card")
+    add(account_id=card, amount=1150, type="paid", category="Shopping", description="Myntra shopping", date=d(38, 20), source="Card")
+    add(account_id=phonepe, amount=1100, type="paid", category="Travel", description="Ola outstation", date=d(52, 6), source="UPI")
+    add(account_id=phonepe, amount=450, type="paid", category="Entertainment", description="BookMyShow tickets", date=d(35, 18), source="UPI")
+    for i, (desc, amt) in enumerate([("Zomato order", 230), ("Swiggy dinner", 310), ("Blinkit groceries", 620), ("Cafe coffee", 190), ("Domino's", 449), ("Local dhaba", 160), ("Swiggy dinner", 275), ("Blinkit groceries", 510)]):
+        add(account_id=phonepe, amount=amt, type="paid", category="Groceries" if "groceries" in desc else "Food", description=desc, date=d(32 + i * 3, 13 + i % 6), source="UPI")
+    for i, (desc, amt) in enumerate([("Uber ride", 210), ("Metro top-up", 200), ("Fuel", 1100), ("Auto fare", 90)]):
+        add(account_id=phonepe, amount=amt, type="paid", category="Transport", description=desc, date=d(34 + i * 6, 9), source="UPI")
+
     # --- planted anomalies (documented in module docstring) -----------------------
     # A. the ₹5,000 unclassified payment — sole cause of the unexplained difference
     add(account_id=hdfc, amount=5000, type="paid", category="Uncategorized", description="", date=d(6, 14, 5), source="Bank", reference="", status="unclassified")
@@ -130,7 +146,7 @@ def build_demo_dataset(now: datetime | None = None):
         amt = base + (i // len(filler)) * 3
         acc = [phonepe, cash, card, hdfc][i % 4]
         src = {phonepe: "UPI", cash: "Cash", card: "Card", hdfc: "Bank"}[acc]
-        date = d(1 + (i * 3) % 29, 8 + i % 10)
+        date = d(1 + (i * 3) % 29, 8 + i % 10) if i % 5 else d(31 + (i * 7) % 28, 8 + i % 10)
         clash = any(t.account_id == acc and t.amount == amt and t.type == "paid" and abs((t.date - date).total_seconds()) <= 48 * 3600 for t in txs)
         if not clash:
             add(account_id=acc, amount=amt, type="paid", category="Transport" if desc in ("Metro", "Bus fare", "Parking") else ("Groceries" if desc == "Grocery run" else "Food"),
@@ -143,6 +159,9 @@ def build_demo_dataset(now: datetime | None = None):
     accounts[0].opening_balance = round(TARGET_RECORDED_BALANCE - other_openings - net_all, 2)
 
     commitments = [
+        # Reminder demo cases: one due tomorrow, one overdue by a day
+        Commitment(name="Electricity bill", amount=1499, due_date=now + timedelta(hours=20), frequency="monthly", category="Utilities", kind="upcoming"),
+        Commitment(name="Wi-Fi bill", amount=799, due_date=now - timedelta(hours=26), frequency="monthly", category="Utilities", kind="recurring"),
         Commitment(name="Rent", amount=12000, due_date=now + timedelta(days=5), frequency="monthly", category="Housing", kind="upcoming"),
         Commitment(name="Laptop EMI", amount=4200, due_date=now + timedelta(days=10), frequency="monthly", category="EMI", kind="loan"),
         Commitment(name="Netflix", amount=999, due_date=now + timedelta(days=18), frequency="monthly", category="Subscription", kind="recurring"),

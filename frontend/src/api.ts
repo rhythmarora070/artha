@@ -7,17 +7,34 @@ const BACKEND =
 
 export const API_BASE = `${BACKEND}/api`;
 
+// Session token lives in memory here (persisted by src/auth.tsx via SecureStore / localStorage).
+let sessionToken: string | null = null;
+let onUnauthorized: (() => void) | null = null;
+export function setSessionToken(t: string | null) {
+  sessionToken = t;
+}
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn;
+}
+
 async function req<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...opts,
     headers: {
       "Content-Type": "application/json",
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
       ...(opts.headers || {}),
     },
   });
+  if (res.status === 401 && sessionToken && !path.startsWith("/auth/")) onUnauthorized?.();
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${text.slice(0, 120)}`);
+    let detail = text;
+    try {
+      const j = JSON.parse(text);
+      detail = typeof j?.detail === "string" ? j.detail : JSON.stringify(j?.detail ?? j);
+    } catch {}
+    throw new Error(`API ${res.status}: ${detail.slice(0, 160)}`);
   }
   return res.json();
 }
@@ -53,7 +70,56 @@ export type Commitment = {
   category: string;
   kind: "upcoming" | "recurring" | "loan" | "owed_by_me" | "owed_to_me";
   status: string;
+  snooze_until?: string | null;
+  last_paid_at?: string | null;
 };
+export type Reminder = Commitment & { hours_until_due: number; overdue: boolean };
+export type Resolution = {
+  id: string;
+  finding_id: string;
+  kind: Finding["kind"];
+  severity: "high" | "medium" | "low";
+  amount: number;
+  account_name: string;
+  related: RelatedRecord[];
+  fix: "categorised" | "described" | "kept_both" | "removed_copy" | "marked_reviewed" | "record_deleted";
+  fix_detail: string;
+  resolved_at: string;
+  title: string;
+};
+export type CategoryComparison = {
+  window_days: number;
+  current_total: number;
+  previous_total: number;
+  rows: { category: string; current: number; previous: number; change: number; change_pct: number | null }[];
+};
+export type ImportRow = {
+  line: number;
+  date: string | null;
+  description: string;
+  amount: number | null;
+  type: Transaction["type"] | null;
+  reference: string | null;
+  category: string;
+  error: string | null;
+  duplicate: boolean;
+};
+export type ImportPreview = {
+  columns: Record<string, string>;
+  rows: ImportRow[];
+  summary: { total: number; importable: number; duplicates: number; errors: number };
+};
+export type User = {
+  user_id: string;
+  email: string;
+  name: string;
+  picture?: string | null;
+  auth_providers: string[];
+  onboarded: boolean;
+  app_lock: boolean;
+  is_demo: boolean;
+};
+export type AuthResult = { session_token: string; user: User };
 export type RelatedRecord = {
   id: string;
   date: string;
@@ -121,6 +187,7 @@ export type Dashboard = {
   upcoming_preview: Commitment[];
   top_finding: Finding | null;
   insights: string[];
+  reminders: Reminder[];
   story: StoryWeek[];
   data_context: string;
 };
@@ -128,6 +195,15 @@ export type Dashboard = {
 type Lang = "en" | "hi";
 
 export const api = {
+  register: (email: string, password: string, name: string) =>
+    req<AuthResult>("/auth/register", { method: "POST", body: JSON.stringify({ email, password, name }) }),
+  login: (email: string, password: string) => req<AuthResult>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  googleSession: (session_id: string) => req<AuthResult>("/auth/session", { method: "POST", body: JSON.stringify({ session_id }) }),
+  demoLogin: () => req<AuthResult>("/auth/demo", { method: "POST" }),
+  me: () => req<User>("/auth/me"),
+  patchMe: (body: Partial<Pick<User, "name" | "onboarded" | "app_lock">>) => req<User>("/auth/me", { method: "PATCH", body: JSON.stringify(body) }),
+  logout: () => req<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+  createAccount: (body: { name: string; type: string; opening_balance: number }) => req<Account>("/accounts", { method: "POST", body: JSON.stringify(body) }),
   dashboard: (lang: Lang = "en") => req<Dashboard>(`/dashboard?lang=${lang}`),
   control: (lang: Lang = "en") => req<{ coverage: Coverage; findings: Finding[] }>(`/control?lang=${lang}`),
   finding: (id: string, lang: Lang = "en") => req<Finding>(`/control/findings/${id}?lang=${lang}`),
@@ -151,6 +227,14 @@ export const api = {
       body: JSON.stringify({ language: lang }),
     }),
   createCommitment: (body: any) => req<Commitment>("/commitments", { method: "POST", body: JSON.stringify(body) }),
+  payCommitment: (id: string) => req<Commitment>(`/commitments/${id}/pay`, { method: "POST" }),
+  snoozeCommitment: (id: string, days = 1) => req<Commitment>(`/commitments/${id}/snooze?days=${days}`, { method: "POST" }),
+  history: (lang: Lang = "en") => req<Resolution[]>(`/control/history?lang=${lang}`),
+  categoryInsights: () => req<CategoryComparison>("/insights/categories"),
+  importPreview: (account_id: string, csv_text: string) =>
+    req<ImportPreview>("/import/preview", { method: "POST", body: JSON.stringify({ account_id, csv_text }) }),
+  importCommit: (account_id: string, rows: Omit<ImportRow, "line" | "error" | "duplicate">[]) =>
+    req<{ ok: boolean; imported: number }>("/import/commit", { method: "POST", body: JSON.stringify({ account_id, rows }) }),
   seed: () => req("/seed", { method: "POST" }),
   ask: (question: string, language: Lang = "en") =>
     req<{ answer: string; intent: string; source: "claude" | "deterministic" }>("/ask", {

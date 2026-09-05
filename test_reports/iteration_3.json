@@ -1,0 +1,45 @@
+{
+  "summary": "Third pass on ARTHA — validated all four new features (Commitment Reminders, Exception History, Category Insights, Statement Import) via Playwright on mobile viewport 390x844 against the preview URL. 13/14 flows PASS; ONE clear bug found: Control > Resolved (Exception History) does not update in-app after a fix inside the finding sheet because finding-sheet.tsx::afterChange never invalidates the ['control-history'] query. Backend endpoint /api/control/history is correct (verified by direct curl after PATCH review=accepted: returns one row with title 'Fee needs review', amount 350, account_name 'HDFC Credit Card', fix 'marked_reviewed'). Second issue: the Import inline error surfaces the raw JSON detail ('{\"detail\":\"Could not detect a date column and an amount / debit / credit column\"}') because runPreview() strips only the 'API 422: ' prefix and doesn't unwrap the JSON body — cosmetic, not a crash. All happy paths PASS: Home reminders-card renders both Wi-Fi (Overdue · ₹799) and Electricity (Due tomorrow · ₹1,499) with snooze-<id>/pay-<id>; snoozing Wi-Fi removes only that row, then paying Electricity removes the last row and hides the card (Upcoming dropped from ₹14,298 to ₹12,000 as expected); ↻ (reset-demo-btn) restores both reminders. Upcoming tab shows both reminders via the same RemindersCard and lists Electricity ₹1,499 + Rent ₹12,000 = ₹13,499. Control shows 94.3% coverage, 140 records, 132 explained, '132 + 8 = 140 records · 6 findings', history-empty visible; opening finding-unexpected_fee → action-mark-reviewed → finding-resolved → finding-close removed the fee card. Money tab shows '140 records', insights-toggle & import-open present; toggling insights reveals category-insights with Last 30 days ₹67,985, Previous ₹31,269, insight-Shopping (₹14,595, +335.8%), insight-Rent (₹12,000, 0%), insight-Uncategorized (₹6,240, new); re-tap hides it. Import modal: import-acc-HDFC Savings + import-pick-file + import-csv all render; pasting the 4-row spec CSV → import-preview shows import-summary '2 ready / 1 duplicates skipped / 1 unreadable', rows import-row-2..5 render, DUPLICATE badge on SALARY row and 'Unreadable date' on the bad row, commit button reads 'Import 2', import-commit → import-done '2' → import-finish returns to Money now showing '142 records' and Home Money Out compact reads ₹99.7K (was ₹99.3K). Import error path with 'foo,bar\\n1,2' → import-error is visible. Hindi: lang-toggle switches Home to 'जल्द देय' / 'भुगतान हुआ' / '1 दिन टालें', Money header to 'इनसाइट्स' / 'आयात', Control bottom to 'हल किए गए'; toggle back to English works. Regression smoke PASS: Home Recorded ₹49,344, Expected ₹54,344, coverage 94.3%; Control 140 records · 6 findings; no red screens.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/control/history", "issue": "Endpoint works correctly (returns Resolution row with title/amount/account_name/fix after PATCH /api/transactions/{id} {review:'accepted'}). Backend is fine — see frontend integration bug."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "src/components/finding-sheet.tsx afterChange()", "issue": "afterChange() invalidates ['control','dashboard','transactions'] but NOT ['control-history']. Result: after resolving a finding inside the sheet (mark-reviewed, keep-both, categorise, delete, etc.) and closing it, the Control > Resolved section stays empty until the app is hard-refreshed or Home ↻ is tapped (which invalidates all queries). Backend history endpoint returns the row correctly. Fix: add `await qc.invalidateQueries({ queryKey: ['control-history'] });` inside afterChange().", "testID": "history-unexpected_fee", "priority": "HIGH"},
+      {"component": "app/import.tsx runPreview()", "issue": "On 422 from /api/import/preview the visible import-error reads 'Could not read this statement — {\"detail\":\"Could not detect a date column and an amount / debit / credit column\"}'. The code only strips the 'API 422: ' prefix from e.message; it should parse the JSON detail and show only the human-readable string, e.g. `Could not read this statement — Could not detect a date column and an amount / debit / credit column`.", "testID": "import-error", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Control > Exception History", "issue": "State sync gap between finding-sheet.tsx and control.tsx history query key. Resolved section only refreshes when other invalidators run (e.g. Home reset-demo-btn or a full navigation refresh).", "affected_testIDs": ["history-unexpected_fee","history-empty","finding-unexpected_fee","action-mark-reviewed"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_artha_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "In /app/frontend/src/components/finding-sheet.tsx::afterChange(), also invalidate the history query — add: `await qc.invalidateQueries({ queryKey: ['control-history'] });`. This will make the Resolved section on Control update immediately after any in-sheet fix (mark-reviewed / keep-both / categorise+describe / delete).",
+    "In /app/frontend/app/import.tsx::runPreview() catch, parse the FastAPI JSON detail before showing: e.g. `let detail = String(e?.message||''); try { const m = detail.match(/^API \\d+: (.*)$/); if (m) { const j = JSON.parse(m[1]); if (j?.detail) detail = String(j.detail); } } catch {}; setError(`${t('import_failed', lang)} — ${detail}`);`.",
+    "Retest just these two spots after the fixes; everything else in this iteration is green."
+  ],
+  "critical_code_review_comments": [
+    "Reminders + Insights + Importer additions are cleanly split into small components/screens (reminders.tsx 85L, category-insights.tsx 82L, import.tsx 224L) — no files near the 700L threshold.",
+    "The RemindersCard is reused on Home (compact) and Upcoming (full) — good DRY, single source of truth via useQuery(['dashboard']).",
+    "server.py `_log_resolutions` correctly diffs findings before/after any mutation and records a Resolution row; nice separation.",
+    "Import commit runs client-side filter (!error && !duplicate) before POST, protecting the server from bad rows even if the server also revalidates.",
+    "All new components use React Native primitives (View/Text/Pressable/TextInput/ScrollView/Modal); no HTML leaks; text always wrapped in <Text>.",
+    "MongoDB _id is stripped everywhere via _strip; EXPO_PUBLIC_BACKEND_URL remains the only source of the backend URL on the client.",
+    "server.py has grown but is still one file (~440 lines) — still under the 700L threshold; can wait to split."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (spot checks: /api/seed, /api/dashboard reminders + upcoming_week_total, /api/control coverage/findings, /api/control/history round-trip, /api/import/preview happy + error)", "frontend": "~93% (13/14 spec flows PASS; Resolved section not refreshing in-app after in-sheet fix is the one failing flow, plus one cosmetic import-error copy issue)"},
+  "seed_data_creation": "POST /api/seed called several times (Home reset-demo-btn) between test blocks and once at the end so the demo state is pristine after this run (Recorded ₹49,344 / Expected ₹54,344 / 140 tx / 9 commitments / 6 findings).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Preview URL: https://memory-wallet-2.preview.emergentagent.com. All new testIDs verified: reminders-card, reminder-<id>, snooze-<id>, pay-<id>, seg-*, insights-toggle, category-insights, insight-<Category>, import-open, import-acc-<Account>, import-pick-file, import-csv, import-preview, import-summary, import-row-<line>, import-commit, import-done, import-finish, import-error, import-close, history-empty, history-<kind>. Reminder IDs regenerate on every seed — read them from the DOM (see script) rather than hardcoding. Backend /api/control/history is verified correct — the bug is purely a missing invalidateQueries call in finding-sheet.tsx.",
+  "rca_of_issue": "Bug: Control > Resolved section stays empty after resolving a finding via the sheet. RCA: control.tsx uses useQuery({ queryKey: ['control-history', lang] }) to render the Resolved list. finding-sheet.tsx::afterChange() only invalidates ['control','dashboard','transactions'] after a successful mutation, so ['control-history'] retains its stale (empty) cache until another action invalidates it globally (e.g. Home reset-demo-btn calls qc.invalidateQueries() with no key which nukes everything). Reproduction: seed → open Control → confirm history-empty → open finding-unexpected_fee → action-mark-reviewed → finding-close → observe the fee card is gone but Resolved section still shows the empty state, while curl GET /api/control/history returns the row. Fix: one-line addition of `await qc.invalidateQueries({ queryKey: ['control-history'] });` inside afterChange() (or use partial-match invalidation across both keys)."
+}

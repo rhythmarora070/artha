@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, router } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import Icon from "@react-native-vector-icons/material-design-icons";
 
-import { api, fmtINR, Finding } from "@/src/api";
+import { api, fmtINR, Finding, Resolution } from "@/src/api";
 import { useTheme, spacing, radius, font } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
 import { FindingSheet, SEV_TONE } from "@/src/components/finding-sheet";
@@ -14,17 +14,19 @@ export default function Control() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { lang } = useLang();
-  const { open } = useLocalSearchParams<{ open?: string }>();
+  const { open, ts } = useLocalSearchParams<{ open?: string; ts?: string }>();
   const [selected, setSelected] = useState<string | null>(null);
+  const [consumedLink, setConsumedLink] = useState<string | null>(null);
   const { data, error, refetch, isRefetching } = useQuery({ queryKey: ["control", lang], queryFn: () => api.control(lang) });
+  const { data: history = [] } = useQuery({ queryKey: ["control-history", lang], queryFn: () => api.history(lang) });
 
-  // Deep link from Home: /control?open=<findingId>
-  useEffect(() => {
-    if (open) {
-      setSelected(String(open));
-      router.setParams({ open: "" });
-    }
-  }, [open]);
+  // Deep link from Home: /control?open=<findingId>&ts=<nonce> — opened once per link
+  const linkKey = open ? `${open}-${ts ?? ""}` : null;
+  const activeFinding = selected ?? (linkKey && linkKey !== consumedLink ? String(open) : null);
+  const closeSheet = () => {
+    setSelected(null);
+    if (linkKey) setConsumedLink(linkKey);
+  };
 
   const cov = data?.coverage;
   const findings = data?.findings ?? [];
@@ -95,9 +97,17 @@ export default function Control() {
         ) : (
           findings.map((f) => <FindingCard key={f.id} f={f} onPress={() => setSelected(f.id)} />)
         )}
+
+        {/* Exception history — what ARTHA caught and how it was fixed */}
+        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("resolved_history", lang)}</Text>
+        {history.length === 0 ? (
+          <Text testID="history-empty" style={{ color: colors.muted, paddingHorizontal: spacing.lg }}>{t("resolved_empty", lang)}</Text>
+        ) : (
+          history.map((h) => <HistoryRow key={h.id} h={h} />)
+        )}
       </ScrollView>
 
-      <FindingSheet findingId={selected} onClose={() => setSelected(null)} />
+      <FindingSheet findingId={activeFinding} onClose={closeSheet} />
     </View>
   );
 }
@@ -137,6 +147,24 @@ function FindingCard({ f, onPress }: { f: Finding; onPress: () => void }) {
       </Text>
       <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.sm }}>{f.why_flagged}</Text>
     </Pressable>
+  );
+}
+
+function HistoryRow({ h }: { h: Resolution }) {
+  const { colors } = useTheme();
+  const { lang } = useLang();
+  const when = new Date(h.resolved_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return (
+    <View testID={`history-${h.kind}`} style={[styles.spot, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, paddingVertical: spacing.md }]}>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <Icon name="check-circle-outline" size={18} color={colors.success} />
+        <Text style={{ color: colors.onSurface, fontWeight: "700", marginLeft: spacing.sm, flex: 1 }} numberOfLines={1}>{h.title}</Text>
+        <Text style={{ color: colors.onSurface, fontWeight: "700" }}>{fmtINR(h.amount)}</Text>
+      </View>
+      <Text style={{ color: colors.muted, fontSize: font.sm, marginTop: 4, marginLeft: 26 }}>
+        {t(`fix_${h.fix}`, lang)}{h.fix_detail ? ` "${h.fix_detail}"` : ""} · {h.account_name} · {when}
+      </Text>
+    </View>
   );
 }
 

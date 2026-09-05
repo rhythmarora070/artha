@@ -111,3 +111,7 @@ backend:
 frontend:
   - task: "Control screen metrics + finding cards + drill-in sheet with fixes; Home recorded/expected labels, data context, weekly story, Investigate deep link; Money control status + suggest category; Ask uses /ask; Quick Record note + inline validation"
     status: passed (testing_agent iteration_2, 12/13 + mic fallback fixed and verified via screenshot)
+
+# ---- feature batch 2: reminders / history / insights / import ----
+backend: pytest 20/20 (tests/test_artha_backend.py) — reminders pay/snooze, history logging, category insights, import preview/commit
+frontend: needs testing_agent — RemindersCard (Home + Upcoming), Control Resolved section, Money Insights toggle, Import modal

@@ -11,11 +11,15 @@ An **AI Financial Control Layer** for Indian students and young professionals. A
 - **Money screen** — filterable ledger (All / Bank / UPI / Card / Cash / Razorpay) with tinted category icons
 - **Financial Control screen** — coverage score (records analyzed = explained + exceptions, coverage from the same counts), severity strip (findings), exception cards → drill-in sheet (what happened / why flagged / related transactions / impact / action / AI explanation) with one-tap fixes (suggest+accept category, add description, keep-both, remove copy, mark reviewed)
 - **Weekly Story** — swipeable 4-week recap cards on Home (deterministic narrative, en/hi)
+- **Commitment Reminders** — in-app only; due within 24h / overdue commitments surface on Home + Upcoming with Mark paid (recurring roll forward) and Snooze 1 day
+- **Exception History** — resolved findings logged (`resolutions` collection) with the fix applied; "Resolved" section at the bottom of Control
+- **Category Insights** — last 30 days vs previous 30 days per category (deterministic bars) behind an "Insights" toggle on Money
+- **Statement Import** — paste CSV / pick .csv → column auto-detection → preview (duplicates by reference or date+amount+description, unreadable rows) → import; rule-based categorisation
 - **Smart categorisation** — Claude suggests a category for Uncategorized records (rule-based fallback), one-tap accept (Money screen + exception sheet)
 - **Upcoming** — segmented control (Upcoming / Recurring / Loans / I owe / Owed to me), total + list
 - **Ask ARTHA** — suggested question chips, chat with Claude Sonnet 5, browser voice mic (en-IN / hi-IN)
 - **English ⇄ हिन्दी** toggle everywhere (persisted in AsyncStorage)
-- **Synthetic data seed** — 105 transactions across 6 accounts, 7 commitments, planted anomalies (₹5,000 mystery, duplicates, unclassified, unexpected fees)
+- **Synthetic data seed** — 140 transactions (≈105 in the last 30 days + previous-month slice) across 6 accounts, 9 commitments (incl. one overdue + one due tomorrow for reminders), planted anomalies (₹5,000 mystery, duplicates, unclassified, unexpected fees)
 
 ## Architecture
 - **Frontend:** Expo Router + React Query + Reanimated. Theme in `src/theme.ts` (moss green palette).
@@ -33,6 +37,7 @@ An **AI Financial Control Layer** for Indian students and young professionals. A
 ## Key backend routes (`/api/*`)
 - `GET /dashboard?lang`, `/control?lang`, `/control/findings/{id}?lang`, `/story?lang`, `/facts`, `/health`, `/categories`
 - `GET/POST /accounts`, `/transactions` (+ `PATCH/DELETE /transactions/{id}`, `POST /transactions/{id}/suggest-category`), `/commitments`
+- `POST /commitments/{id}/pay`, `POST /commitments/{id}/snooze?days=1`, `GET /control/history?lang`, `GET /insights/categories`, `POST /import/preview`, `POST /import/commit`
 - `POST /ask` (non-streaming; `{answer, intent, source}`), `POST /control/findings/{id}/explain`
 - `POST /seed`, `POST /reset`
 - `POST /payments/order`, `GET /razorpay/status`
