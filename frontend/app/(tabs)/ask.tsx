@@ -6,7 +6,7 @@ import { api } from "@/src/api";
 import { useTheme, spacing, radius, font } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
 
-type Msg = { role: "user" | "artha"; text: string };
+type Msg = { role: "user" | "artha"; text: string; source?: "claude" | "deterministic" };
 
 export default function Ask() {
   const insets = useSafeAreaInsets();
@@ -26,45 +26,64 @@ export default function Ask() {
     setMsgs((m) => [...m, { role: "user", text: question }]);
     setLoading(true);
     try {
-      const res = await api.askOnce(question, lang);
-      setMsgs((m) => [...m, { role: "artha", text: res.answer }]);
-    } catch (e: any) {
-      setMsgs((m) => [...m, { role: "artha", text: `ARTHA needs connection to think. (${e.message})` }]);
+      const res = await api.ask(question, lang);
+      setMsgs((m) => [...m, { role: "artha", text: res.answer, source: res.source }]);
+    } catch {
+      setMsgs((m) => [...m, { role: "artha", text: t("ask_offline", lang) }]);
     } finally {
       setLoading(false);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }
 
-  // Voice: web speech recognition (best-effort)
+  // Voice input is a progressive enhancement (Web Speech API, en-IN / hi-IN). Never required.
   const [listening, setListening] = useState(false);
+  const recRef = useRef<any>(null);
   function toggleMic() {
-    if (Platform.OS !== "web") {
-      setMsgs((m) => [
-        ...m,
-        { role: "artha", text: lang === "hi" ? "मोबाइल ऐप पर वॉइस के लिए ब्राउज़र प्रीव्यू का उपयोग करें।" : "Use the browser preview for voice input on this device." },
-      ]);
-      return;
-    }
-    const w: any = window;
-    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
-    if (!SR) {
-      setMsgs((m) => [...m, { role: "artha", text: "Voice not supported in this browser." }]);
-      return;
-    }
-    const rec = new SR();
-    rec.lang = lang === "hi" ? "hi-IN" : "en-IN";
-    rec.continuous = false;
-    rec.interimResults = false;
-    setListening(true);
-    rec.onresult = (e: any) => {
-      const text = e.results[0][0].transcript;
+    if (listening) {
+      recRef.current?.stop?.();
       setListening(false);
-      send(text);
-    };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    rec.start();
+      return;
+    }
+    const w: any = Platform.OS === "web" ? globalThis : null;
+    const SR = w?.SpeechRecognition || w?.webkitSpeechRecognition;
+    if (!SR) {
+      setMsgs((m) => [...m, { role: "artha", text: t("voice_unsupported", lang) }]);
+      return;
+    }
+    try {
+      const rec = new SR();
+      recRef.current = rec;
+      rec.lang = lang === "hi" ? "hi-IN" : "en-IN";
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.onresult = (e: any) => {
+        rec.__done = true;
+        const text = e.results?.[0]?.[0]?.transcript;
+        setListening(false);
+        if (text) send(text);
+        else setMsgs((m) => [...m, { role: "artha", text: t("voice_no_speech", lang) }]);
+      };
+      rec.onerror = (e: any) => {
+        rec.__done = true;
+        setListening(false);
+        setMsgs((m) => [...m, { role: "artha", text: e?.error === "not-allowed" ? t("voice_unsupported", lang) : t("voice_no_speech", lang) }]);
+      };
+      rec.onend = () => setListening(false);
+      setListening(true);
+      rec.start();
+      // Guard: some browsers expose the API but never deliver audio (e.g. headless / no mic).
+      setTimeout(() => {
+        if (recRef.current === rec && !rec.__done) {
+          try { rec.abort?.(); } catch {}
+          setListening(false);
+          setMsgs((m) => [...m, { role: "artha", text: t("voice_no_speech", lang) }]);
+        }
+      }, 8000);
+    } catch {
+      setListening(false);
+      setMsgs((m) => [...m, { role: "artha", text: t("voice_unsupported", lang) }]);
+    }
   }
 
   return (
@@ -137,12 +156,23 @@ export default function Ask() {
             <Text style={{ color: m.role === "user" ? colors.onBrandPrimary : colors.onSurface, fontSize: font.lg, lineHeight: 22 }}>
               {m.text}
             </Text>
+            {m.source ? (
+              <Text style={{ color: colors.muted, fontSize: 10, marginTop: 6 }}>
+                {m.source === "claude" ? "Claude · ARTHA engine facts" : t("deterministic_note", lang)}
+              </Text>
+            ) : null}
           </View>
         ))}
         {loading ? (
           <View style={[styles.bubble, { alignSelf: "flex-start", backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1, flexDirection: "row", alignItems: "center" }]}>
             <ActivityIndicator size="small" color={colors.brandPrimary} />
             <Text style={{ color: colors.muted, marginLeft: spacing.sm }}>{t("thinking", lang)}</Text>
+          </View>
+        ) : null}
+        {listening ? (
+          <View style={[styles.bubble, { alignSelf: "flex-start", backgroundColor: colors.brandTertiary, flexDirection: "row", alignItems: "center" }]}>
+            <Icon name="microphone" size={16} color={colors.brandPrimary} />
+            <Text style={{ color: colors.brandPrimary, marginLeft: spacing.sm, fontWeight: "600" }}>{t("listening", lang)}</Text>
           </View>
         ) : null}
       </ScrollView>

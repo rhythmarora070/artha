@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, KeyboardAvoidingView, Platform, Alert } from "react-native";
+import { View, Text, Pressable, TextInput, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -10,7 +10,7 @@ import { api } from "@/src/api";
 import { useTheme, spacing, radius, font } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
 
-const CATEGORIES = ["Food", "Groceries", "Transport", "Personal", "Shopping", "Bills", "Subscription", "Salary", "Investment", "Uncategorized"];
+const DEFAULT_CATEGORIES = ["Food", "Groceries", "Transport", "Travel", "Rent", "Shopping", "Subscription", "Utilities", "Education", "Entertainment", "Transfer", "Salary", "Fees", "Investment", "Health", "Personal", "Uncategorized"];
 
 export default function QuickRecord() {
   const insets = useSafeAreaInsets();
@@ -23,40 +23,45 @@ export default function QuickRecord() {
   const [category, setCategory] = useState("Personal");
   const [accountId, setAccountId] = useState<string | null>(null);
   const [reference, setReference] = useState("");
+  const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const { data: accounts = [] } = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+  const { data: categories = DEFAULT_CATEGORIES } = useQuery({ queryKey: ["categories"], queryFn: api.categories });
 
   useEffect(() => {
     if (!accountId && accounts[0]) setAccountId(accounts[0].id);
   }, [accounts, accountId]);
 
   async function save() {
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) {
-      Alert.alert("Amount required", "Please enter a valid amount.");
+    const amt = Number(amount.replace(/,/g, ""));
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setError(`${t("invalid_amount", lang)} — ${t("invalid_amount_body", lang)}`);
       return;
     }
     if (!accountId) return;
     const acc = accounts.find((a) => a.id === accountId);
     setSaving(true);
+    setError(null);
     try {
       await api.createTransaction({
         account_id: accountId,
-        amount: amt,
+        amount: Math.round(amt * 100) / 100,
         type,
         category,
-        description,
+        description: description.trim(),
         source: acc?.type || "Bank",
-        reference: reference || null,
+        reference: reference.trim() || null,
+        note: note.trim() || null,
       });
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch {}
       qc.invalidateQueries();
       router.back();
-    } catch (e: any) {
-      Alert.alert("Save failed", e.message);
+    } catch {
+      setError(`${t("save_failed", lang)} — ${t("offline_hint", lang)}`);
     } finally {
       setSaving(false);
     }
@@ -117,6 +122,11 @@ export default function QuickRecord() {
               autoFocus
             />
           </View>
+          {error ? (
+            <Text testID="qr-error" style={{ color: colors.error, marginTop: spacing.sm, fontSize: font.sm, textAlign: "center" }}>
+              {error}
+            </Text>
+          ) : null}
         </View>
 
         {/* Description */}
@@ -133,7 +143,7 @@ export default function QuickRecord() {
         {/* Category */}
         <Text style={styles.label(colors)}>{t("category", lang)}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44 }} contentContainerStyle={{ gap: spacing.sm }}>
-          {CATEGORIES.map((c) => {
+          {categories.map((c) => {
             const active = c === category;
             return (
               <Pressable
@@ -186,6 +196,17 @@ export default function QuickRecord() {
           testID="qr-reference"
           value={reference}
           onChangeText={setReference}
+          placeholder="—"
+          placeholderTextColor={colors.muted}
+          style={styles.input(colors)}
+        />
+
+        {/* Note */}
+        <Text style={styles.label(colors)}>{t("note", lang)}</Text>
+        <TextInput
+          testID="qr-note"
+          value={note}
+          onChangeText={setNote}
           placeholder="—"
           placeholderTextColor={colors.muted}
           style={styles.input(colors)}

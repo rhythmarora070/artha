@@ -2,7 +2,7 @@ import { Tabs } from "expo-router";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import { useTheme } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
-import { Platform, View } from "react-native";
+import { Platform } from "react-native";
 
 export default function TabsLayout() {
   const { colors } = useTheme();

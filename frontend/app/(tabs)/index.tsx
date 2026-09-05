@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Pressable, ScrollView, RefreshControl, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, RefreshControl, useWindowDimensions, Platform } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -6,7 +6,7 @@ import { Image } from "expo-image";
 import { router } from "expo-router";
 import Icon from "@react-native-vector-icons/material-design-icons";
 
-import { api, fmtINR } from "@/src/api";
+import { api, fmtINR, StoryWeek } from "@/src/api";
 import { useTheme, spacing, radius, font } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
 import { useState } from "react";
@@ -20,9 +20,10 @@ export default function Home() {
   const { lang, setLang } = useLang();
   const qc = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: api.dashboard,
+  const [banner, setBanner] = useState<string | null>(null);
+  const { data, error, refetch } = useQuery({
+    queryKey: ["dashboard", lang],
+    queryFn: () => api.dashboard(lang),
   });
 
   const onRefresh = async () => {
@@ -35,9 +36,15 @@ export default function Home() {
     try {
       await api.seed();
       qc.invalidateQueries();
-    } catch (e: any) {
-      Alert.alert("Seed failed", e.message);
+      setBanner(null);
+    } catch {
+      setBanner(t("demo_reset_failed", lang));
     }
+  };
+
+  const openTopFinding = () => {
+    if (data?.top_finding) router.push({ pathname: "/control", params: { open: data.top_finding.id } } as any);
+    else router.push("/control" as any);
   };
 
   return (
@@ -73,6 +80,21 @@ export default function Home() {
           </View>
         </View>
 
+        {error && !data ? (
+          <View style={[styles.insightCard, { backgroundColor: colors.surfaceTertiary }]}>
+            <Icon name="cloud-off-outline" size={18} color={colors.muted} />
+            <Text style={{ color: colors.onSurfaceTertiary, marginLeft: spacing.sm, flex: 1 }}>{t("offline_title", lang)} · {t("offline_hint", lang)}</Text>
+            <Pressable onPress={() => refetch()}>
+              <Text style={{ color: colors.brandPrimary, fontWeight: "700" }}>{t("retry", lang)}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {banner ? (
+          <View style={[styles.insightCard, { backgroundColor: colors.surfaceTertiary }]}>
+            <Text style={{ color: colors.error, flex: 1 }}>{banner}</Text>
+          </View>
+        ) : null}
+
         {/* Hero card */}
         <View style={[styles.hero, { backgroundColor: colors.surfaceInverse }]}>
           <Image source={HERO_BG} style={StyleSheet.absoluteFillObject as any} contentFit="cover" />
@@ -83,7 +105,7 @@ export default function Home() {
           <View style={styles.heroInner}>
             <Text style={styles.heroLabel}>{t("current_balance", lang)}</Text>
             <Text testID="current-balance" style={styles.heroValue}>
-              {fmtINR(data?.balances.current_balance ?? 0)}
+              {fmtINR(data?.balances.recorded_balance ?? 0)}
             </Text>
             <View style={styles.heroRow}>
               <View>
@@ -102,6 +124,8 @@ export default function Home() {
             </View>
           </View>
         </View>
+
+        <Text testID="data-context" style={[styles.context, { color: colors.muted }]}>{t("data_context", lang)}</Text>
 
         {/* Metric grid */}
         <View style={styles.grid}>
@@ -123,8 +147,10 @@ export default function Home() {
             testID="metric-blind-spot"
             icon="alert-circle-outline"
             label={t("potential_blind_spot", lang)}
-            value={data?.top_blind_spot ? fmtINR(data.top_blind_spot.amount) : "—"}
+            value={data?.top_finding ? fmtINR(data.top_finding.amount) : "—"}
             tone="warning"
+            hint={data?.top_finding ? t("investigate", lang) : undefined}
+            onPress={openTopFinding}
           />
           <MetricCard
             testID="metric-upcoming"
@@ -149,11 +175,14 @@ export default function Home() {
           </View>
         ) : null}
 
+        {/* Weekly story — swipeable recap */}
+        {data?.story?.length ? <Story weeks={data.story} /> : null}
+
         {/* Upcoming preview */}
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("upcoming", lang)}</Text>
           <Pressable testID="see-all-upcoming" onPress={() => router.push("/upcoming" as any)}>
-            <Text style={{ color: colors.brandPrimary, fontWeight: "600" }}>See all</Text>
+            <Text style={{ color: colors.brandPrimary, fontWeight: "600" }}>{t("see_all", lang)}</Text>
           </Pressable>
         </View>
         {(data?.upcoming_preview ?? []).map((c) => (
@@ -205,22 +234,90 @@ function MetricCard({
   value,
   tone,
   testID,
+  hint,
+  onPress,
 }: {
   icon: string;
   label: string;
   value: string;
   tone: "success" | "error" | "warning" | "info";
   testID?: string;
+  hint?: string;
+  onPress?: () => void;
 }) {
   const { colors } = useTheme();
   const toneColor = colors[tone];
   return (
-    <View testID={testID} style={[styles.metric, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-      <View style={[styles.metricIcon, { backgroundColor: colors.brandTertiary }]}>
-        <Icon name={icon as any} size={18} color={toneColor} />
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      disabled={!onPress}
+      style={[styles.metric, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View style={[styles.metricIcon, { backgroundColor: colors.brandTertiary }]}>
+          <Icon name={icon as any} size={18} color={toneColor} />
+        </View>
+        {hint ? (
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text style={{ color: colors.brandPrimary, fontSize: 11, fontWeight: "700" }}>{hint}</Text>
+            <Icon name="chevron-right" size={14} color={colors.brandPrimary} />
+          </View>
+        ) : null}
       </View>
       <Text style={{ color: colors.muted, fontSize: font.sm, marginTop: spacing.sm }}>{label}</Text>
       <Text style={{ color: colors.onSurface, fontSize: font.xl, fontWeight: "700", marginTop: 2 }}>{value}</Text>
+    </Pressable>
+  );
+}
+
+function Story({ weeks }: { weeks: StoryWeek[] }) {
+  const { colors } = useTheme();
+  const { lang } = useLang();
+  const { width } = useWindowDimensions();
+  const cardW = width - spacing.lg * 2;
+  const [page, setPage] = useState(0);
+  return (
+    <View style={{ marginTop: spacing.xl }}>
+      <View style={[styles.sectionHeader, { marginTop: 0 }]}>
+        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("weekly_story", lang)}</Text>
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          {weeks.map((_, i) => (
+            <View key={i} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: i === page ? colors.brandPrimary : colors.border }} />
+          ))}
+        </View>
+      </View>
+      <ScrollView
+        testID="story-scroll"
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={cardW + spacing.sm}
+        decelerationRate="fast"
+        contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}
+        onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / (cardW + spacing.sm)))}
+      >
+        {weeks.map((w, i) => (
+          <View key={i} testID={`story-week-${i}`} style={[styles.storyCard, { width: cardW, backgroundColor: colors.surfaceInverse }]}>
+            <Text style={{ color: "#FFFFFFAA", fontSize: font.sm, fontWeight: "600", letterSpacing: 0.8, textTransform: "uppercase" }}>{w.label}</Text>
+            <Text style={{ color: "#FFFFFF", fontSize: font.lg, lineHeight: 24, marginTop: spacing.sm }}>{w.narrative}</Text>
+            <View style={{ flexDirection: "row", gap: spacing.xl, marginTop: spacing.md }}>
+              <View>
+                <Text style={{ color: "#FFFFFF99", fontSize: 11 }}>{t("money_out", lang)}</Text>
+                <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>{fmtINR(w.money_out)}</Text>
+              </View>
+              <View>
+                <Text style={{ color: "#FFFFFF99", fontSize: 11 }}>{t("money_in", lang)}</Text>
+                <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>{fmtINR(w.money_in)}</Text>
+              </View>
+              <View>
+                <Text style={{ color: "#FFFFFF99", fontSize: 11 }}>{t("records", lang)}</Text>
+                <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>{w.records}</Text>
+              </View>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
     </View>
   );
 }
@@ -272,6 +369,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   metricIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  context: { fontSize: 11, paddingHorizontal: spacing.lg, marginTop: spacing.sm },
+  storyCard: { borderRadius: radius.lg, padding: spacing.lg, minHeight: 150 },
   insightCard: {
     flexDirection: "row",
     marginHorizontal: spacing.lg,
@@ -320,10 +419,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 6,
+    ...Platform.select({
+      web: { boxShadow: "0px 8px 16px rgba(0,0,0,0.18)" } as any,
+      default: { shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 6 },
+    }),
   },
 });

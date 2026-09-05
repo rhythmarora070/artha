@@ -1,0 +1,43 @@
+{
+  "summary": "Second pass on ARTHA correctness/GitHub-readiness. Backend spot-checked: GET /api/control coverage math reconciles (97 explained + 8 affected == 105 records; coverage_pct == 92.4, matches round(97/105*100,1)); GET /api/dashboard returns recorded_balance 49344, expected_balance 54344, difference -5000, top_finding.kind == 'unexplained_difference' with amount 5000 — PASS. Frontend (mobile viewport 390x844): Home shows Recorded Balance ₹49,344, Expected Balance ₹54,344, coverage 92.4%, data-context caption, all 4 metric cards, Potential Blind Spot ₹5,000 with 'Investigate' hint, insights strip, Weekly Story with story-scroll + story-week-0..3, Upcoming preview, Ask ARTHA + Record Money CTAs — PASS. Tapping metric-blind-spot navigates to /control and opens the finding sheet with title 'Unexplained balance difference' — PASS. AI explanation button produces ai-explanation-text (640 chars) — PASS. Control tab: coverage 92.4%, records 105, explained 97, affected 8, findings line '97 + 8 = 105 records · 6 findings', HIGH 1 / MEDIUM 3 / LOW 2, finding cards render with severity/confidence/amount/related count/why_flagged; possible_duplicate card shows '2 related records · ₹1,798 affected' (not repeated single entries) — PASS. Investigate one-tap fix: typed 'Sent to landlord' into related-desc, tap suggest-cat -> suggested-category 'Transfer' shown, tap accept-fix -> finding-resolved visible; Control updated to coverage 93.3%, explained 98, exceptions 7; Home showed Recorded==Expected ₹49,344, blind-spot card moved to next finding — PASS. Reset-demo-btn restored ₹49,344/₹54,344 — PASS. Duplicate keep-both: opened finding-possible_duplicate (2 related rows), action-keep-both -> finding-resolved; possible_duplicate count on Control dropped 2->1 — PASS. Quick Record: empty amount -> qr-error 'Enter a valid amount — Amount must be a number greater than 0.'; qr-note field present; amount 250, description 'Test chai', category Food -> save returns Home with current ₹49,094 (₹250 decrease) — PASS. Money tab: '105 records' header, tx-suggest for Uncategorized rows visible, click -> tx-accept appears, click accept updates row — PASS. Ask tab: chip 'Why is my balance ₹5,000 short?' -> answer contains 49,344, 54,344, and 5,000 with source label — PASS. Hindi mode: ask-lang-toggle switches Ask + Home + Control labels to Devanagari ('दर्ज', 'बैलेंस', 'अनुमानित', 'अस्पष्ट'); Hindi chip 'अगले हफ़्ते…' answered with ₹12,000 — PASS. Upcoming tab: seg-upcoming, seg-recurring, seg-loan, seg-owed_by_me, seg-owed_to_me testIDs all present; Rent ₹12,000 visible — PASS (segment testIDs were the action item from iteration_1 and are now fixed). No red-screen errors, no crashes. Only minor observations noted below (Ask mic silent fallback, second/third suggested chips became unreachable by visible text after first send — but chip1 alone validated the /api/ask flow).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/control", "issue": "coverage exposes both 'affected_records' (=warning + exception = 8) and separate warning_records/exception_records/exception_findings. UI uses affected_records for the 'Exceptions' number — labelling as 'Exceptions' in the score card while affected includes warnings is a minor UX ambiguity (not a correctness bug — the math still reconciles)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/(tabs)/ask.tsx mic fallback", "issue": "Tapping ask-mic in a headless browser (no Web Speech API) did NOT surface any visible fallback message bubble (no 'voice'/'unsupported'/'microphone'/'speech' text appeared). Spec asks for a clean fallback message. Confirm the mic press produces user-visible feedback when SpeechRecognition is absent.", "testID": "ask-mic", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home", "issues": ["Two RN warnings in the web console: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' — coming from styles.ctaPrimary shadowColor/shadowOffset/shadowOpacity/shadowRadius. Consider a Platform.select or migrate to boxShadow for web. Cosmetic only."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_artha_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider surfacing a visible fallback bubble/toast in Ask when ask-mic is pressed but Web Speech API is unavailable (currently silent in browsers without SpeechRecognition).",
+    "(Cosmetic) Migrate CTA shadow* style props on Home (styles.ctaPrimary) to boxShadow or wrap in Platform.select({ web: {boxShadow: …}, default: {shadow…}}) to silence RN Web deprecation warnings.",
+    "(Optional) Rename the Control score card 'Exceptions' label to 'Affected' or 'Needs review' so it matches coverage.affected_records semantics (which include warnings + exceptions) — the underlying math is correct."
+  ],
+  "critical_code_review_comments": [
+    "Deterministic engine + Claude explainer separation is clean and record-level reconciliation is honest (explained + affected_records == records_analyzed, coverage_pct = explained/total).",
+    "Finding sheet correctly wires per-finding actions (keep-both for duplicates, mark-reviewed for fees/missing_description, one-tap categorise+describe for unexplained_difference) and invalidates dashboard/control/transactions caches after each change.",
+    "reset-demo-btn on Home reliably restores the ₹5,000 planted mystery and all 105 tx / 7 commitments.",
+    "All React Native primitives used (View/Text/Pressable/TextInput/ScrollView/Modal); no HTML div/span leaks; text always wrapped in <Text>.",
+    "MongoDB _id is stripped everywhere; EXPO_PUBLIC_BACKEND_URL is the only source of the backend URL on the client.",
+    "server.py continues to grow (still single file); split into routers/engine.py/ai.py/seed.py modules if it crosses ~1000 lines."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (spot checks: /api/seed, /api/control math, /api/dashboard balances)", "frontend": "~98% (12/13 spec flows PASS; only ask-mic fallback message not observed)"},
+  "seed_data_creation": "POST /api/seed called once at start of testing and via Home reset-demo-btn after the Investigate fix, after the Duplicate keep-both, after Quick Record, after Money tx-accept. Final reseed executed — demo state is pristine (recorded 49,344 / expected 54,344, 105 tx, 6 findings).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: https://memory-wallet-2.preview.emergentagent.com. Seed via POST /api/seed or Home reset-demo-btn (testID reset-demo-btn). Suggested question chips carry testIDs suggested-suggested_q1..q6_hi (useful because their visible text disappears after a question is sent). Segment tabs on Upcoming now expose seg-upcoming, seg-recurring, seg-loan, seg-owed_by_me, seg-owed_to_me. ask-lang-toggle switches the entire app to Hindi via zustand+AsyncStorage.",
+  "rca_of_issue": "No new bugs surfaced this iteration. Only observation: ask-mic in a headless Chromium yields no visible fallback text — likely the code short-circuits when navigator.mediaDevices/SpeechRecognition is undefined but doesn't emit a chat bubble. Suggested fix: in ask.tsx onMicPress, when the API is unsupported, push a system chat message like 'Voice input isn't supported on this device — please type your question.' so the fallback is user-visible."
+}

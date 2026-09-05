@@ -9,7 +9,9 @@ An **AI Financial Control Layer** for Indian students and young professionals. A
 - **Home dashboard** — hero card with Current vs Expected balance, Money In/Out, Coverage %, Blind Spot amount, upcoming preview, insight strip, Record Money + Ask ARTHA CTAs
 - **Quick Record** modal — notes-app inspired capture: Amount, Paid/Received, Description, Category chips, Account chips, Reference. Save in <5 sec.
 - **Money screen** — filterable ledger (All / Bank / UPI / Card / Cash / Razorpay) with tinted category icons
-- **Financial Control screen** — coverage score, severity strip, list of blind spots with reason + confidence
+- **Financial Control screen** — coverage score (records analyzed = explained + exceptions, coverage from the same counts), severity strip (findings), exception cards → drill-in sheet (what happened / why flagged / related transactions / impact / action / AI explanation) with one-tap fixes (suggest+accept category, add description, keep-both, remove copy, mark reviewed)
+- **Weekly Story** — swipeable 4-week recap cards on Home (deterministic narrative, en/hi)
+- **Smart categorisation** — Claude suggests a category for Uncategorized records (rule-based fallback), one-tap accept (Money screen + exception sheet)
 - **Upcoming** — segmented control (Upcoming / Recurring / Loans / I owe / Owed to me), total + list
 - **Ask ARTHA** — suggested question chips, chat with Claude Sonnet 5, browser voice mic (en-IN / hi-IN)
 - **English ⇄ हिन्दी** toggle everywhere (persisted in AsyncStorage)
@@ -17,9 +19,9 @@ An **AI Financial Control Layer** for Indian students and young professionals. A
 
 ## Architecture
 - **Frontend:** Expo Router + React Query + Reanimated. Theme in `src/theme.ts` (moss green palette).
-- **Backend:** FastAPI + MongoDB (`/app/backend/server.py`)
-- **Deterministic financial engine** computes ALL numbers (balances, coverage, blind spots, affordability). Claude only *explains*.
-- **AI:** Emergent Universal LLM Key → `claude-sonnet-5` via `emergentintegrations` (streaming + non-streaming)
+- **Backend:** FastAPI + MongoDB — `server.py` (routes), `engine.py` (deterministic truth), `ai.py` (Claude layer, server-side only), `seed.py` (synthetic data), `models.py`
+- **Deterministic financial engine** computes ALL numbers. Record-level status model (explained / warning / exception) → `explained + affected_records == records_analyzed`; `exception_findings` tracked separately; duplicates grouped into one finding. Recorded balance (all records) vs expected balance (explained records) → unexplained difference = net of unclassified records. Internal `Transfer` category excluded from money in/out.
+- **AI:** Emergent Universal LLM Key → `claude-sonnet-5` via `emergentintegrations`, non-streaming; receives facts + deterministic draft; every AI call has a deterministic fallback (`source` field tells the UI which one answered)
 - **Razorpay:** test-mode client + mock adapter fallback; secrets server-side only.
 
 ## Data model
@@ -29,11 +31,14 @@ An **AI Financial Control Layer** for Indian students and young professionals. A
 - Blind spots are computed on the fly, not stored.
 
 ## Key backend routes (`/api/*`)
-- `GET /dashboard`, `/control`, `/facts`
-- `GET/POST /accounts`, `/transactions`, `/commitments`
-- `POST /ask` (streaming SSE) + `POST /ask_once`
+- `GET /dashboard?lang`, `/control?lang`, `/control/findings/{id}?lang`, `/story?lang`, `/facts`, `/health`, `/categories`
+- `GET/POST /accounts`, `/transactions` (+ `PATCH/DELETE /transactions/{id}`, `POST /transactions/{id}/suggest-category`), `/commitments`
+- `POST /ask` (non-streaming; `{answer, intent, source}`), `POST /control/findings/{id}/explain`
 - `POST /seed`, `POST /reset`
 - `POST /payments/order`, `GET /razorpay/status`
 
 ## Demo story built-in
-User's HDFC observed balance is ₹5,000 lower than expected. Blind Spot engine flags it (HIGH). Ask ARTHA → Claude uses the structured facts to point at the unclassified ₹5,000 payment.
+Recorded balance ₹49,344 vs expected ₹54,344. The only unclassified record (₹5,000 HDFC payment, no category/description) is the sole cause → HIGH "Unexplained balance difference" linked to that record. Classifying it clears the difference. Wording never claims a "missing transaction" or live bank data; Home shows "Based on recorded and imported financial activity · demo data is synthetic".
+
+## GitHub readiness (done)
+README.md (15 sections), backend/.env.example, frontend/.env.example, .gitignore covers .env/.expo/logs; no secrets in client code; backend tests: `backend/tests/test_artha_backend.py` (16 tests).

@@ -1,85 +1,103 @@
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { useEffect, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLocalSearchParams, router } from "expo-router";
 import Icon from "@react-native-vector-icons/material-design-icons";
 
-import { api, fmtINR, BlindSpot } from "@/src/api";
+import { api, fmtINR, Finding } from "@/src/api";
 import { useTheme, spacing, radius, font } from "@/src/theme";
 import { useLang, t } from "@/src/i18n";
-
-const SEV_TONE: Record<string, "error" | "warning" | "info"> = {
-  high: "error",
-  medium: "warning",
-  low: "info",
-};
+import { FindingSheet, SEV_TONE } from "@/src/components/finding-sheet";
 
 export default function Control() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { lang } = useLang();
-  const { data } = useQuery({ queryKey: ["control"], queryFn: api.control });
+  const { open } = useLocalSearchParams<{ open?: string }>();
+  const [selected, setSelected] = useState<string | null>(null);
+  const { data, error, refetch, isRefetching } = useQuery({ queryKey: ["control", lang], queryFn: () => api.control(lang) });
+
+  // Deep link from Home: /control?open=<findingId>
+  useEffect(() => {
+    if (open) {
+      setSelected(String(open));
+      router.setParams({ open: "" });
+    }
+  }, [open]);
 
   const cov = data?.coverage;
-  const spots = data?.blind_spots ?? [];
+  const findings = data?.findings ?? [];
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <ScrollView
         contentContainerStyle={{ paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.xxxl }}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.brandPrimary} />}
       >
         <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
           <Text style={[styles.title, { color: colors.onSurface }]}>
             {lang === "hi" ? "वित्तीय कंट्रोल" : "Financial Control"}
           </Text>
-          <Text style={{ color: colors.muted, marginTop: 2 }}>
-            {lang === "hi" ? "आपकी वित्तीय स्थिति का स्वास्थ्य" : "How well ARTHA can explain your money"}
-          </Text>
+          <Text style={{ color: colors.muted, marginTop: 2 }}>{t("control_subtitle", lang)}</Text>
         </View>
 
-        {/* Score card */}
+        {/* Score card — all four numbers come from the same record-level classification */}
         <View style={[styles.scoreCard, { backgroundColor: colors.brandPrimary }]}>
           <Text style={{ color: "#FFFFFFAA", fontSize: font.sm, fontWeight: "600", letterSpacing: 0.8, textTransform: "uppercase" }}>
             {t("coverage", lang)}
           </Text>
-          <Text style={{ color: "#FFFFFF", fontSize: 56, fontWeight: "800", marginTop: 4 }}>
+          <Text testID="control-coverage-pct" style={{ color: "#FFFFFF", fontSize: 56, fontWeight: "800", marginTop: 4 }}>
             {cov?.coverage_pct ?? 0}%
           </Text>
           <View style={{ flexDirection: "row", marginTop: spacing.md, gap: spacing.xl }}>
             <View>
               <Text style={styles.scoreSubLbl}>{t("records_analyzed", lang)}</Text>
-              <Text style={styles.scoreSubVal}>{cov?.records_analyzed ?? 0}</Text>
+              <Text testID="control-records" style={styles.scoreSubVal}>{cov?.records_analyzed ?? 0}</Text>
             </View>
             <View>
-              <Text style={styles.scoreSubLbl}>{lang === "hi" ? "समझाया गया" : "Explained"}</Text>
-              <Text style={styles.scoreSubVal}>{cov?.explained ?? 0}</Text>
+              <Text style={styles.scoreSubLbl}>{t("explained", lang)}</Text>
+              <Text testID="control-explained" style={styles.scoreSubVal}>{cov?.explained ?? 0}</Text>
             </View>
             <View>
-              <Text style={styles.scoreSubLbl}>{t("exceptions", lang)}</Text>
-              <Text style={styles.scoreSubVal}>{cov?.exceptions ?? 0}</Text>
+              <Text style={styles.scoreSubLbl}>{t("affected_records", lang)}</Text>
+              <Text testID="control-exceptions" style={styles.scoreSubVal}>{cov?.affected_records ?? 0}</Text>
             </View>
           </View>
+          <Text testID="control-findings-line" style={{ color: "#FFFFFF99", fontSize: font.sm, marginTop: spacing.md }}>
+            {cov
+              ? `${cov.explained} + ${cov.affected_records} = ${cov.records_analyzed} ${t("records", lang)} · ${cov.exception_findings} ${t("findings_count", lang)}`
+              : ""}
+          </Text>
         </View>
 
-        {/* Severity strip */}
+        {/* Severity strip (counts findings by severity) */}
         <View style={styles.sevRow}>
           <SevPill count={cov?.high ?? 0} tone="error" label={t("high", lang)} />
           <SevPill count={cov?.medium ?? 0} tone="warning" label={t("medium", lang)} />
           <SevPill count={cov?.low ?? 0} tone="info" label={t("low", lang)} />
         </View>
 
-        {/* Blind spots */}
         <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("blind_spots", lang)}</Text>
-        {spots.length === 0 ? (
+        {error ? (
+          <View style={{ padding: spacing.xxl, alignItems: "center" }}>
+            <Icon name="cloud-off-outline" size={40} color={colors.muted} />
+            <Text style={{ color: colors.muted, marginTop: spacing.sm }}>{t("offline_title", lang)}</Text>
+            <Pressable onPress={() => refetch()} style={{ marginTop: spacing.md }}>
+              <Text style={{ color: colors.brandPrimary, fontWeight: "700" }}>{t("retry", lang)}</Text>
+            </Pressable>
+          </View>
+        ) : findings.length === 0 && data ? (
           <View style={{ padding: spacing.xxl, alignItems: "center" }}>
             <Icon name="shield-check" size={40} color={colors.success} />
-            <Text style={{ color: colors.muted, marginTop: spacing.sm }}>
-              {lang === "hi" ? "कोई ब्लाइंड स्पॉट नहीं" : "No blind spots detected"}
-            </Text>
+            <Text style={{ color: colors.muted, marginTop: spacing.sm }}>{t("no_blind_spots", lang)}</Text>
           </View>
         ) : (
-          spots.map((s) => <SpotCard key={s.id} s={s} />)
+          findings.map((f) => <FindingCard key={f.id} f={f} onPress={() => setSelected(f.id)} />)
         )}
       </ScrollView>
+
+      <FindingSheet findingId={selected} onClose={() => setSelected(null)} />
     </View>
   );
 }
@@ -95,29 +113,30 @@ function SevPill({ count, tone, label }: { count: number; tone: "error" | "warni
   );
 }
 
-function SpotCard({ s }: { s: BlindSpot }) {
+function FindingCard({ f, onPress }: { f: Finding; onPress: () => void }) {
   const { colors } = useTheme();
   const { lang } = useLang();
-  const tone = SEV_TONE[s.severity];
+  const tone = SEV_TONE[f.severity];
   return (
-    <View style={[styles.spot, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+    <Pressable testID={`finding-${f.kind}`} onPress={onPress} style={[styles.spot, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: spacing.sm }}>
         <View style={[styles.spotDot, { backgroundColor: colors[tone] }]} />
-        <Text style={{ color: colors[tone], fontWeight: "800", fontSize: 11, letterSpacing: 1 }}>
-          {t(s.severity, lang)}
-        </Text>
+        <Text style={{ color: colors[tone], fontWeight: "800", fontSize: 11, letterSpacing: 1 }}>{t(f.severity, lang)}</Text>
         <Text style={{ color: colors.muted, fontSize: 11, marginLeft: spacing.sm }}>
-          {Math.round(s.confidence * 100)}% {lang === "hi" ? "आत्मविश्वास" : "confidence"}
+          {t("confidence", lang)}: {t(`conf_${f.confidence}`, lang)}
         </Text>
+        <View style={{ flex: 1 }} />
+        <Icon name="chevron-right" size={18} color={colors.muted} />
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <Text style={{ color: colors.onSurface, fontWeight: "700", fontSize: font.lg, flex: 1, marginRight: spacing.md }}>
-          {s.title}
-        </Text>
-        <Text style={{ color: colors.onSurface, fontWeight: "800", fontSize: font.lg }}>{fmtINR(s.amount)}</Text>
+        <Text style={{ color: colors.onSurface, fontWeight: "700", fontSize: font.lg, flex: 1, marginRight: spacing.md }}>{f.title}</Text>
+        <Text style={{ color: colors.onSurface, fontWeight: "800", fontSize: font.lg }}>{fmtINR(f.amount)}</Text>
       </View>
-      <Text style={{ color: colors.muted, fontSize: font.base, marginTop: 4 }}>{s.reason}</Text>
-    </View>
+      <Text style={{ color: colors.muted, fontSize: font.sm, marginTop: 2 }}>
+        {f.related.length} {t("related_records", lang)} · {fmtINR(f.amount)} {t("affected", lang)}
+      </Text>
+      <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.sm }}>{f.why_flagged}</Text>
+    </Pressable>
   );
 }
 

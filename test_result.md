@@ -101,3 +101,13 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+# ---- 2026-06 correctness pass (main agent) ----
+backend:
+  - task: "Control metrics reconcile (explained + affected = total; coverage from same counts; findings separate)"
+    file: "backend/engine.py"
+    status: passed (pytest 16/16 in backend/tests)
+  - task: "Duplicate grouping, ₹5,000 unexplained difference linked to unclassified record, finding detail + explain, suggest-category, patch/delete, /ask with deterministic fallback"
+    status: passed (pytest)
+frontend:
+  - task: "Control screen metrics + finding cards + drill-in sheet with fixes; Home recorded/expected labels, data context, weekly story, Investigate deep link; Money control status + suggest category; Ask uses /ask; Quick Record note + inline validation"
+    status: passed (testing_agent iteration_2, 12/13 + mic fallback fixed and verified via screenshot)

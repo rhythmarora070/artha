@@ -30,10 +30,30 @@ next-env.d.ts
 dist/
 dist
 
-# Environment files (comprehensive coverage)
-
+# Environment files (comprehensive coverage) — real secrets live only in local .env files
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
 *token.json*
 *credentials.json*
+
+# Expo / Metro
+.expo/
+.expo-shared/
+.metro-cache/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# Logs
+logs/
+*.log
 
 # Logs and debug files
 npm-debug.log*

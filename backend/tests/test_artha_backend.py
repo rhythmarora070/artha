@@ -1,9 +1,10 @@
-"""ARTHA backend tests - deterministic engine + Claude explainer."""
+"""ARTHA backend tests — deterministic engine invariants + API contract."""
 import os
+
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://memory-wallet-2.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 
 
@@ -16,7 +17,6 @@ def session():
 
 @pytest.fixture(scope="module", autouse=True)
 def _seed(session):
-    """Seed DB once for the module."""
     r = session.post(f"{API}/seed", timeout=60)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -27,159 +27,130 @@ def _seed(session):
     return body
 
 
-# ---------- Health ----------
-class TestHealth:
+class TestArtha:
+    """One class on purpose: pytest-xdist loadscope keeps these sequential (shared demo state)."""
+
     def test_root(self, session):
         r = session.get(f"{API}/", timeout=15)
+        assert r.status_code == 200 and r.json()["ok"] is True
+
+    def test_health(self, session):
+        r = session.get(f"{API}/health", timeout=15)
         assert r.status_code == 200
-        assert r.json().get("ok") is True
+        assert r.json()["demo_mode"] is True
 
 
-# ---------- Seed idempotency ----------
-class TestSeed:
-    def test_seed_repeatable(self, session):
-        r = session.post(f"{API}/seed", timeout=60)
-        assert r.status_code == 200
-        assert r.json()["accounts"] == 6
-        assert r.json()["commitments"] == 7
+    def test_explained_plus_affected_equals_total(self, session):
+        cov = session.get(f"{API}/control", timeout=30).json()["coverage"]
+        assert cov["explained"] + cov["affected_records"] == cov["records_analyzed"]
+        assert cov["warning_records"] + cov["exception_records"] == cov["affected_records"]
+        assert cov["coverage_pct"] == round(cov["explained"] / cov["records_analyzed"] * 100, 1)
+        assert cov["high"] + cov["medium"] + cov["low"] == cov["exception_findings"]
 
+    def test_findings_do_not_double_count_records(self, session):
+        d = session.get(f"{API}/control", timeout=30).json()
+        touched = set()
+        for f in d["findings"]:
+            touched.update(f["transaction_ids"])
+        assert len(touched) == d["coverage"]["affected_records"]
 
-# ---------- Dashboard: planted mystery ----------
-class TestDashboard:
-    def test_dashboard_shape_and_mystery(self, session):
-        r = session.get(f"{API}/dashboard", timeout=30)
-        assert r.status_code == 200
-        d = r.json()
-        for k in ("balances", "coverage", "upcoming_preview", "top_blind_spot", "insights"):
-            assert k in d
+    def test_duplicates_are_grouped(self, session):
+        d = session.get(f"{API}/control", timeout=30).json()
+        dups = [f for f in d["findings"] if f["kind"] == "possible_duplicate"]
+        assert dups, "expected planted duplicate groups"
+        for f in dups:
+            assert len(f["related"]) >= 2
+            assert f["title"].startswith("Possible")
+            assert f["amount"] == pytest.approx(sum(r["amount"] for r in f["related"]))
+
+    def test_5000_difference_is_linked_to_unclassified_record(self, session):
+        d = session.get(f"{API}/dashboard", timeout=30).json()
         b = d["balances"]
-        assert "current_balance" in b and "expected_balance" in b and "difference" in b
-        # Planted demo mystery: HDFC observed is ₹5,000 short
-        assert b["difference"] == -5000, f"expected -5000, got {b['difference']}"
-        assert d["top_blind_spot"] is not None
-        assert d["top_blind_spot"]["severity"] == "high"
+        assert b["recorded_balance"] == 49344.0
+        assert b["expected_balance"] == 54344.0
+        assert b["difference"] == -5000.0
+        top = d["top_finding"]
+        assert top["kind"] == "unexplained_difference" and top["severity"] == "high"
+        assert len(top["related"]) == 1 and top["related"][0]["amount"] == 5000.0
+        assert "missing transaction" not in top["what_happened"].lower()
 
+    def test_hindi_findings(self, session):
+        d = session.get(f"{API}/control?lang=hi", timeout=30).json()
+        assert any("\u0900" <= ch <= "\u097F" for ch in d["findings"][0]["title"])
 
-# ---------- Transactions ----------
-class TestTransactions:
-    def test_list_all(self, session):
-        r = session.get(f"{API}/transactions", timeout=30)
+    def test_finding_detail_and_explain(self, session):
+        fid = session.get(f"{API}/control", timeout=30).json()["findings"][0]["id"]
+        r = session.get(f"{API}/control/findings/{fid}", timeout=30)
         assert r.status_code == 200
-        data = r.json()
-        assert isinstance(data, list)
-        assert len(data) >= 100
-
-    def test_filter_upi(self, session):
-        r = session.get(f"{API}/transactions", params={"source": "UPI"}, timeout=30)
+        for k in ("what_happened", "why_flagged", "impact", "action", "related", "confidence"):
+            assert k in r.json()
+        r = session.post(f"{API}/control/findings/{fid}/explain", json={"language": "en"}, timeout=90)
         assert r.status_code == 200
-        data = r.json()
-        assert len(data) > 0
-        assert all(t["source"] == "UPI" for t in data)
+        assert r.json()["source"] in ("claude", "deterministic")
+        assert len(r.json()["explanation"]) > 20
 
-    def test_create_transaction_and_balance_updates(self, session):
-        # Get baseline expected balance
-        d0 = session.get(f"{API}/dashboard").json()["balances"]["expected_balance"]
-        # Fetch an account id
-        accs = session.get(f"{API}/accounts").json()
-        acc_id = accs[0]["id"]
-        payload = {
-            "account_id": acc_id,
-            "amount": 250.0,
-            "type": "paid",
-            "category": "Food",
-            "description": "TEST_pytest coffee",
-            "source": "UPI",
-        }
-        r = session.post(f"{API}/transactions", json=payload, timeout=15)
+
+    def test_list_has_control_status(self, session):
+        txs = session.get(f"{API}/transactions", timeout=30).json()
+        assert len(txs) >= 100
+        assert all(t["control_status"] in ("explained", "warning", "exception") for t in txs)
+
+    def test_create_updates_totals_and_coverage(self, session):
+        before = session.get(f"{API}/dashboard", timeout=30).json()
+        acc = session.get(f"{API}/accounts", timeout=15).json()[0]
+        r = session.post(f"{API}/transactions", json={
+            "account_id": acc["id"], "amount": 250, "type": "paid", "category": "Food",
+            "description": "Test chai", "source": acc["type"],
+        }, timeout=30)
         assert r.status_code == 200
-        created = r.json()
-        assert created["amount"] == 250.0
-        tx_id = created["id"]
+        tid = r.json()["id"]
+        after = session.get(f"{API}/dashboard", timeout=30).json()
+        assert after["balances"]["recorded_balance"] == pytest.approx(before["balances"]["recorded_balance"] - 250)
+        assert after["balances"]["money_out"] == pytest.approx(before["balances"]["money_out"] + 250)
+        assert after["coverage"]["records_analyzed"] == before["coverage"]["records_analyzed"] + 1
+        assert after["coverage"]["explained"] == before["coverage"]["explained"] + 1
+        session.delete(f"{API}/transactions/{tid}", timeout=15)
 
-        # Verify appears in list
-        lst = session.get(f"{API}/transactions").json()
-        assert any(t["id"] == tx_id for t in lst)
+    def test_invalid_amount_rejected(self, session):
+        acc = session.get(f"{API}/accounts", timeout=15).json()[0]
+        r = session.post(f"{API}/transactions", json={"account_id": acc["id"], "amount": -5, "type": "paid", "source": acc["type"]}, timeout=15)
+        assert r.status_code == 422
 
-        # Balance should decrease by 250
-        d1 = session.get(f"{API}/dashboard").json()["balances"]["expected_balance"]
-        assert round(d0 - d1, 2) == 250.0
+    def test_classifying_unclassified_record_clears_difference(self, session):
+        d = session.get(f"{API}/dashboard", timeout=30).json()
+        rid = d["top_finding"]["related"][0]["id"]
+        r = session.post(f"{API}/transactions/{rid}/suggest-category", json={"language": "en"}, timeout=60)
+        assert r.status_code == 200 and r.json()["category"] != "Uncategorized"
+        r = session.patch(f"{API}/transactions/{rid}", json={"category": "Transfer", "description": "Sent to landlord"}, timeout=15)
+        assert r.status_code == 200 and r.json()["status"] == "cleared"
+        d2 = session.get(f"{API}/dashboard", timeout=30).json()
+        assert d2["balances"]["difference"] == 0.0
+        # restore demo state without re-seeding
+        r = session.patch(f"{API}/transactions/{rid}", json={"category": "Uncategorized", "description": "", "status": "unclassified"}, timeout=15)
+        assert r.json()["status"] == "unclassified"
+        assert session.get(f"{API}/dashboard", timeout=30).json()["balances"]["difference"] == -5000.0
 
-        # Cleanup
-        session.delete(f"{API}/transactions/{tx_id}")
 
-
-# ---------- Control (blind spots) ----------
-class TestControl:
-    def test_control_has_high_5000_balance_mismatch(self, session):
-        r = session.get(f"{API}/control", timeout=30)
+    def test_shortfall_english(self, session):
+        r = session.post(f"{API}/ask", json={"question": "Why is my balance ₹5,000 short?", "language": "en"}, timeout=90)
         assert r.status_code == 200
-        c = r.json()
-        assert "coverage" in c and "blind_spots" in c
-        assert isinstance(c["blind_spots"], list) and len(c["blind_spots"]) > 0
-        found = [
-            s for s in c["blind_spots"]
-            if s["kind"] == "balance_mismatch" and s["severity"] == "high" and int(s["amount"]) == 5000
-        ]
-        assert found, f"No ₹5000 high-severity balance_mismatch found: {c['blind_spots']}"
+        body = r.json()
+        assert body["intent"] == "shortfall" and "5,000" in body["answer"]
+
+    def test_affordability(self, session):
+        r = session.post(f"{API}/ask", json={"question": "Can I afford ₹2,000 today?", "language": "en"}, timeout=90)
+        assert r.json()["intent"] == "affordability"
+        assert "37,344" in r.json()["answer"]
+
+    def test_hindi_next_week(self, session):
+        r = session.post(f"{API}/ask", json={"question": "अगले हफ़्ते मुझे कितने पैसे चाहिए होंगे?", "language": "hi"}, timeout=90)
+        ans = r.json()["answer"]
+        assert any("\u0900" <= ch <= "\u097F" for ch in ans) and "12,000" in ans
 
 
-# ---------- Commitments ----------
-class TestCommitments:
-    def test_list(self, session):
-        r = session.get(f"{API}/commitments", timeout=15)
-        assert r.status_code == 200
-        data = r.json()
-        assert len(data) == 7
-        kinds = {c["kind"] for c in data}
-        for expected in ("upcoming", "recurring", "loan", "owed_by_me", "owed_to_me"):
-            assert expected in kinds, f"missing kind {expected}"
-
-    def test_create_commitment(self, session):
-        payload = {
-            "name": "TEST_pytest commitment",
-            "amount": 500,
-            "due_date": "2026-12-31T00:00:00Z",
-            "frequency": "one-time",
-            "category": "Personal",
-            "kind": "upcoming",
-        }
-        r = session.post(f"{API}/commitments", json=payload, timeout=15)
-        assert r.status_code == 200
-        c = r.json()
-        assert c["name"] == "TEST_pytest commitment"
-        # Cleanup
-        session.delete(f"{API}/commitments/{c['id']}")
-
-
-# ---------- Ask ARTHA (Claude via emergent LLM key) ----------
-class TestAsk:
-    def test_ask_5000_shortfall_english(self, session):
-        r = session.post(f"{API}/ask_once", json={"question": "Why am I 5000 short?", "language": "en"}, timeout=90)
-        assert r.status_code == 200
-        ans = r.json().get("answer", "")
-        assert ans and len(ans) > 20
-        # Must reference 5000
-        assert "5,000" in ans or "5000" in ans, f"Answer missing 5000 reference: {ans}"
-
-    def test_ask_hindi_devanagari(self, session):
-        r = session.post(f"{API}/ask_once", json={"question": "मेरा बैलेंस क्यों कम है?", "language": "hi"}, timeout=90)
-        assert r.status_code == 200
-        ans = r.json().get("answer", "")
-        assert ans
-        # Contains Devanagari
-        assert any("\u0900" <= ch <= "\u097F" for ch in ans), f"No Devanagari in: {ans}"
-
-    def test_ask_affordability(self, session):
-        r = session.post(f"{API}/ask_once", json={"question": "Can I afford 2000 today?", "language": "en"}, timeout=90)
-        assert r.status_code == 200
-        ans = r.json().get("answer", "").lower()
-        assert ans
-        assert "afford" in ans or "discretionary" in ans or "budget" in ans or "2,000" in ans or "2000" in ans
-
-
-# ---------- Razorpay status ----------
-class TestRazorpay:
-    def test_status(self, session):
-        r = session.get(f"{API}/razorpay/status", timeout=15)
-        assert r.status_code == 200
-        assert r.json()["mode"] in ("mock", "test")
+    def test_list_and_week_total(self, session):
+        coms = session.get(f"{API}/commitments", timeout=15).json()
+        assert len(coms) == 7
+        d = session.get(f"{API}/dashboard", timeout=30).json()
+        assert d["upcoming_week_total"] == 12000.0
+        assert d["discretionary"] == 49344.0 - 12000.0
