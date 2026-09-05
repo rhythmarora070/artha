@@ -1,0 +1,184 @@
+{
+  "app_name": "ARTHA",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A premium, calm, and trustworthy financial memory that puts users in deterministic control of their money without cognitive overload.",
+  "color": {
+    "surface": "#F7F8F7",
+    "onSurface": "#121413",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#121413",
+    "surfaceTertiary": "#EFF1F0",
+    "onSurfaceTertiary": "#454946",
+    "surfaceInverse": "#1A1D1B",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#2A4B3A",
+    "brandPrimary": "#2A4B3A",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#5A7C6B",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#E4EBE6",
+    "onBrandTertiary": "#2A4B3A",
+    "success": "#3E7B5B",
+    "onSuccess": "#FFFFFF",
+    "warning": "#C2935B",
+    "onWarning": "#FFFFFF",
+    "error": "#B25048",
+    "onError": "#FFFFFF",
+    "info": "#4A6C5B",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E7E5",
+    "borderStrong": "#C8CDC9",
+    "divider": "#E5E7E5",
+    "muted": "#6E7571",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "PlusJakartaSans",
+    "textFontFamily": "PlusJakartaSans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical breathing room for financial data. Keep list items at least 56pt high. Empty space should feel intentional.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": 1,
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Bottom tab bar (when content scrolls behind it)",
+      "Floating action buttons (Quick Record)",
+      "Sticky headers over transaction lists",
+      "Modal scrim entry/exit for bottom sheets"
+    ],
+    "dont's": [
+      "Every button or list row",
+      "Dense data cards in the Financial Control screen",
+      "Form inputs"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "A premium dashboard offering an immediate sense of financial control, current balances, and quick capture.",
+      "states": {
+        "loading": "Centered spinner over a subtle brandTertiary background.",
+        "empty": "Clean abstract illustration + 'Your financial memory starts here' + Primary Quick Record CTA.",
+        "error": "Readable message ('Unable to load balance') + Retry button."
+      },
+      "layout": "Use a featured hero card at the top displaying the Current Balance and Coverage Score over a premium textured background (with gradient scrim). Below it, display a 2-column grid for 'Money In/Out' and 'Blind Spots'. Use a floating FAB for 'Quick Record'."
+    },
+    {
+      "name": "Money",
+      "purpose": "A comprehensive, filterable ledger of all financial transactions across all sources.",
+      "states": {
+        "loading": "Skeleton loaders for list rows.",
+        "empty": "Abstract geometric image + 'No transactions found' + Clear filters CTA.",
+        "error": "Readable message ('Failed to sync transactions') + Retry button."
+      },
+      "layout": "Sticky header with horizontally scrollable filter chips (All, Bank, UPI, Card, Cash). Transaction list using a timeline-based view. Each row uses a tinted icon container for the category, title, source, and amount."
+    },
+    {
+      "name": "Control",
+      "purpose": "A dedicated health dashboard mapping control effectiveness, coverage score, and blind spots.",
+      "states": {
+        "loading": "Skeleton UI representing metric cards.",
+        "empty": "Illustration + 'Start capturing transactions to unlock your control score.'",
+        "error": "Readable message + Retry button."
+      },
+      "layout": "Explicit health/control effectiveness scorecard at the top. Use stacked modules with visual indicators (risk level dots) for Unexplained Differences and Duplicates. Expandable/collapsible rows revealing health factor breakdowns."
+    },
+    {
+      "name": "Upcoming",
+      "purpose": "A timeline of financial commitments, EMIs, and pending receivables.",
+      "states": {
+        "loading": "Spinner centered.",
+        "empty": "Illustration + 'No upcoming commitments.'",
+        "error": "Readable message + Retry button."
+      },
+      "layout": "Segmented control at the top (Upcoming, Recurring, Loans). Display commitments in wide cards showing amount, due date, and status. Use warm warning colors for imminent dues."
+    },
+    {
+      "name": "Ask ARTHA",
+      "purpose": "A natural language conversational interface for financial insights, avoiding generic chatbot aesthetics.",
+      "states": {
+        "loading": "Subtle typing indicator or pulsing brand logo.",
+        "empty": "Suggested query chips (e.g., 'How much did I spend on food this month?') + Large sticky microphone button.",
+        "error": "Readable message ('ARTHA needs connection to think') + Retry button."
+      },
+      "layout": "Chat interface with premium, rounded message bubbles. The bottom input area should feature a prominent voice/mic button for quick voice input. English/Hindi toggle visible in the header."
+    },
+    {
+      "name": "Quick Record",
+      "purpose": "A fast, notes-app-inspired modal for capturing financial events instantly.",
+      "states": {
+        "loading": "Spinner replacing the save button.",
+        "empty": "Form is ready to fill.",
+        "error": "Validation error text inline under inputs."
+      },
+      "layout": "Implemented as a full-bleed bottom sheet. Direct manual entry form with large, easily tappable inputs for Amount. Toggle for Paid/Received. Dropdowns/chips for Category and Account Source. Sticky 'Save' button above the keyboard."
+    }
+  ],
+  "images": {
+    "hero_background": {
+      "url": "https://images.unsplash.com/photo-1711107754300-67d5d87c75e7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwyfHxwcmVtaXVtJTIwYWJzdHJhY3QlMjB0ZXh0dXJlJTIwbGlnaHQlMjBtb3NzJTIwZ3JlZW4lMjBzYWdlfGVufDB8fHx8MTc4ODU5NjQ4NHww&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1629197520635-16570fbd0bb3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2OTV8MHwxfHNlYXJjaHwxfHxwcmVtaXVtJTIwYWJzdHJhY3QlMjBkYXJrJTIwZ3JlZW4lMjB0ZXh0dXJlfGVufDB8fHx8MTc4ODU5NjQ4M3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Premium abstract moss green texture"
+    },
+    "empty_state_abstract": {
+      "url": "https://images.unsplash.com/photo-1627037558426-c2d07beda3af?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNDR8MHwxfHNlYXJjaHwyfHxtaW5pbWFsJTIwY2xlYW4lMjBhYnN0cmFjdCUyMGdlb21ldHJpYyUyMGNhbG18ZW58MHx8fHwxNzg4NTk2NDgzfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Minimal clean abstract geometric shapes"
+    }
+  },
+  "haptics": {
+    "events": {
+      "quick_record_save": "success",
+      "tab_change": "light",
+      "mic_button_press": "medium",
+      "filter_chip_select": "light",
+      "blind_spot_expand": "light"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the color palette. Do NOT use ANY blues (navy, sky, royal, etc.) or purples. Use the defined moss green and sage colors to communicate a premium financial feel.",
+    "Implement the 'Quick Record' as a globally accessible FAB from the Home screen, triggering a fast-entry bottom sheet to capture data swiftly.",
+    "Ensure the hero card on the Home screen uses the 'hero_background' image with a top-to-bottom gradient scrim (transparent to surfaceInverse) to ensure foreground text contrast.",
+    "Support English and Hindi (Devanagari script) cleanly by using the defined typography (PlusJakartaSans supports it well; ensure the UI scales correctly for Devanagari text heights).",
+    "For the 'Ask ARTHA' screen, avoid a generic chatbot UI. Make it look like a premium conversational insights layer with distinct typography, structured insight cards, and a prominent voice mic button.",
+    "Ensure all interactive touch targets (especially Quick Record FAB and bottom tabs) are at least 44x44pt.",
+    "For 'Money' transactions, utilize tinted icon containers (brandTertiary background with brandPrimary icon) for transaction categories instead of raw icons.",
+    "Include a Hindi language toggle prominently on the Home screen header or in a global settings modal accessible from the header.",
+    "Format currency strictly using the Indian Rupee (₹) symbol."
+  ]
+}

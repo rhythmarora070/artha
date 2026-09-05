@@ -1,0 +1,46 @@
+{
+  "summary": "First full pass on ARTHA. Backend: 13/13 pytest cases pass against the public preview URL - health, idempotent seed (105 tx / 6 accounts / 7 commitments), dashboard with planted -5000 difference and top_blind_spot severity=high, transactions list + UPI filter + create-and-balance-update, control endpoint with ₹5000 high balance_mismatch, commitments CRUD across all 5 kinds, POST /api/ask_once with Claude (English shortfall referencing ₹5,000, Devanagari Hindi, affordability), and Razorpay status returning mock. Frontend: Home renders ARTHA brand, current/expected balance, coverage %, all 4 metric cards, insight strip, upcoming preview. Language toggle switches labels to Devanagari (persisted via AsyncStorage). Quick Record modal opens from FAB, accepts amount/description/category/account, Save creates a transaction and returns to Home. Money tab shows filter chips (All/Bank/UPI/Card/Cash/Razorpay) and UPI filter correctly narrows the list. Control tab shows coverage %, high/medium/low counts, and blind-spot cards with severity + reason. Ask tab suggestion chip 'Why is my balance ₹5,000 short?' posts to /api/ask_once and shows a rich Claude answer bubble that explains the HDFC shortfall. Upcoming tab lists commitments (Rent visible on default segment); segmented labels 'Recurring/Loans/I owe/Owed to me' could not be located by text — needs testIDs on the segment buttons to reliably switch tabs (see action items). No red-screen errors, no deprecated Expo packages detected, no ObjectId leaks, no React Native issues.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/dashboard", "issue": "Only 3 default insights returned; when top_blind_spot exists insight text uses 'unexplained balance difference' phrase — matches spec, but insight for a HIGH severity spot could also expose severity to the UI (nice-to-have)."},
+      {"endpoint": "POST /api/payments/order", "issue": "Non-mock path references undefined var RZP_KEY_ID (should be RAZORPAY_KEY_ID) at server.py:887 — would 500 if real Razorpay keys are ever set. Mock mode unaffected."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/(tabs)/upcoming.tsx segment control", "issue": "Segmented tabs (Upcoming/Recurring/Loans/I owe/Owed to me) do not expose testIDs; get_by_text lookup timed out for 'Recurring', 'Loans', 'I owe', 'Owed to me'. Either labels differ from spec or elements are non-interactive text nodes.", "testID": "missing (e.g. upcoming-seg-recurring)", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Ask", "issues": ["Suggestion chip lacks a data-testid (had to click by visible text). Adding testID='ask-suggestion-<idx>' would make it robust."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_artha_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "In server.py:887 rename undefined RZP_KEY_ID -> RAZORPAY_KEY_ID (or reuse variable used for client init) to avoid NameError once Razorpay test keys are configured.",
+    "Add testIDs to the segmented control buttons in app/(tabs)/upcoming.tsx (e.g. upcoming-seg-upcoming/recurring/loan/owed-by-me/owed-to-me).",
+    "Add testIDs to Ask suggestion chips in app/(tabs)/ask.tsx (e.g. ask-suggestion-0..n) for reliable automation.",
+    "Seed is destructive (reset=True default) - this is intentional but consumers should be aware that repeated /api/seed calls wipe user data; keep the current behaviour but document it."
+  ],
+  "critical_code_review_comments": [
+    "Deterministic engine cleanly separated from Claude explainer - system prompt correctly instructs the LLM never to invent numbers. ",
+    "MongoDB _id is stripped everywhere via _strip_id helper.",
+    "All environment variables read from env; no hardcoded URLs.",
+    "server.py is single-file 910 lines; consider splitting into routers/engine/seed modules if it grows further (>1000 lines).",
+    "Razorpay non-mock branch has a NameError bug (RZP_KEY_ID undefined) - see backend minor issues."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_artha_backend.py (new)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "~90% (segment control on Upcoming tab untested due to missing testIDs)"},
+  "seed_data_creation": "Called POST /api/seed twice during backend testing and a final reseed after UI tests to restore the pristine planted ₹5,000 demo mystery.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: https://memory-wallet-2.preview.emergentagent.com. Run pytest with `python -m pytest backend/tests/test_artha_backend.py -v -o addopts=''` (disable xdist to avoid concurrent-seed race that briefly leaves 14 commitments in the DB). Planted demo mystery: HDFC observed is ₹5,000 less than expected; if you add or delete transactions the reported difference will drift accordingly - re-run POST /api/seed to reset. Razorpay is in mock mode (no keys in .env).",
+  "rca_of_issue": "Initial pytest run with xdist showed TestCommitments.test_list observing 14 commitments instead of 7. Root cause: two xdist workers each ran the module-scoped seed fixture in parallel; the destructive delete_many + insert operations interleaved, momentarily leaving duplicates in the DB. Not a backend bug. Mitigation: run serially (addopts overridden) or move seed to session scope with a xdist_group. Verified by rerunning without xdist - all 13 tests pass."
+}
