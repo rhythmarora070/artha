@@ -41,8 +41,25 @@ RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("artha")
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
+def _init_db():
+    if MONGO_URL.startswith("mongomock://") or os.environ.get("USE_MOCK_MONGO") == "1":
+        logger.info("Using in-memory MongoDB mock (mongomock_motor)")
+        import mongomock_motor
+        c = mongomock_motor.AsyncMongoMockClient()
+        return c, c[DB_NAME]
+    try:
+        from pymongo import MongoClient
+        MongoClient(MONGO_URL, serverSelectionTimeoutMS=800).admin.command("ping")
+        logger.info("Connected to MongoDB at %s", MONGO_URL)
+        c = AsyncIOMotorClient(MONGO_URL)
+        return c, c[DB_NAME]
+    except Exception as e:
+        logger.warning("Live MongoDB not reachable at %s (%s); using in-memory mongomock_motor", MONGO_URL, e)
+        import mongomock_motor
+        c = mongomock_motor.AsyncMongoMockClient()
+        return c, c[DB_NAME]
+
+client, db = _init_db()
 
 # Razorpay test-mode client with mock fallback (no real money moves in either mode)
 try:
